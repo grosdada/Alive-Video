@@ -4,3 +4,5 @@
 *.jpg binary
 *.mp4 binary
 *.mp3 binary
+*.sh text eol=lf
+*.command text eol=lf

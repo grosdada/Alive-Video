@@ -150,6 +150,17 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
       <a href="http://127.0.0.1:8792">http://127.0.0.1:8792</a>. Port 8792 : Alive-Comics garde le 8790, les deux
       tournent côte à côte. Un second lancement ouvre juste le navigateur (port exclusif). Instance de test :
       <code>python tools/dev_instance.py</code> → port 8793 (mêmes dossiers : tester sur une copie <code>zz-…</code>).</p></div></li>
+    <li><b>Sur un Mac</b><div><p>Dans le Terminal :
+      <code>curl -fsSL https://raw.githubusercontent.com/grosdada/Alive-Video/main/mac/install.sh | bash</code>. Le script
+      (<code>mac/install.sh</code>) installe Homebrew s'il manque (mot de passe de la session demandé), Python 3.12, ffmpeg et
+      git, clone le dépôt dans <code>~/Alive-Video</code>, crée l'environnement Python <code>.venv</code> et le raccourci
+      « Alive Video » sur le Bureau, qui lance <code>Lancer_Alive_Video.command</code> (mise à jour <code>git pull</code> au
+      lancement si le Mac est en ligne). Relancer la même ligne met à jour. Rien n'est téléchargé par le navigateur : pas de
+      blocage Gatekeeper.</p></div></li>
+    <li><b>Ou sans rien installer</b><div><p>Ouvrir l'application d'un autre poste, par le réseau : sur le PC qui la fait
+      tourner, <code>"server": {"host": "0.0.0.0"}</code> dans <code>local_settings.json</code> et le port 8792 ouvert dans le
+      pare-feu ; puis <code>http://&lt;adresse du PC&gt;:8792</code> (à la maison, ou par Tailscale). Les planches restent sur
+      ce PC.</p></div></li>
     <li><b>Ce qui n'est pas dans Git</b><div><p><code>projects/</code> (planches, vidéos importées, copies de lecture, exports),
       <code>data/</code> (livres, projets de rangement, préréglages, registre des publications, journal),
       <code>local_settings.json</code> (port, publication). Les copier pour changer de PC ; ne jamais les versionner.</p></div></li>

@@ -17,6 +17,20 @@ Lancer_Alive_Video.bat        (ou : python -m app)
 L'interface s'ouvre sur http://127.0.0.1:8792/ (Alive-Comics garde le port 8790 : les deux tournent ensemble).
 Il faut Python 3.10+, ffmpeg et ffprobe dans le PATH, et `pip install -r requirements.txt` (Pillow, NumPy, OpenCV).
 
+## Sur Mac
+
+Une seule ligne à coller dans le Terminal (Applications › Utilitaires › Terminal) :
+
+```
+curl -fsSL https://raw.githubusercontent.com/grosdada/Alive-Video/main/mac/install.sh | bash
+```
+
+Elle installe ce qu'il faut (Homebrew, Python, ffmpeg ; le mot de passe de la session Mac est demandé une fois, compter
+10 à 20 minutes la première fois), l'application dans `~/Alive-Video` et un raccourci **« Alive Video »** sur le Bureau.
+Ensuite : double-clic sur le raccourci, l'application s'ouvre dans le navigateur (Safari ou Chrome) ; laisser la fenêtre
+du Terminal ouverte. Elle se met à jour toute seule au lancement quand le Mac est en ligne ; les planches restent sur le
+Mac (`~/Alive-Video/projects`).
+
 ## Mode d'emploi
 
 1. **Nouvelle planche** : un nom, un format (page BD, manga, 4:5, carré, écran 9:16), le sens et un découpage de départ.
