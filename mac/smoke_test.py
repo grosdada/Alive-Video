@@ -3,6 +3,7 @@
 Usage : python mac/smoke_test.py '/chemin/Alive Video.app'
 Les données sont isolées dans build/smoke-data, sur le port de développement 8793.
 """
+import ast
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,9 @@ BUNDLE = Path(sys.argv[1]).resolve()
 DATA = ROOT / "build" / "smoke-data"
 BIN = BUNDLE / "Contents" / "Frameworks" / "bin"
 BASE = "http://127.0.0.1:8793"
+SOURCE = ast.parse((ROOT / "app" / "server.py").read_text())
+EXPECTED_VERSION = next(ast.literal_eval(n.value) for n in SOURCE.body if isinstance(n, ast.Assign)
+                        and any(isinstance(t, ast.Name) and t.id == "VERSION" for t in n.targets))
 
 
 def request(path, body=None, raw=False, method=None):
@@ -46,7 +50,7 @@ def main():
                 time.sleep(0.5)
         else:
             raise TimeoutError("Démarrage du bundle trop long")
-        assert info["ffmpeg"] and info["version"] == "0.1.1", info
+        assert info["ffmpeg"] and info["version"] == EXPECTED_VERSION, info
         p = request("/api/projects", {"name": "zz-test-macos", "format": "carre", "preset": "3x2"})
         pid, panel = p["id"], next(iter(p["panels"]))
         request(f"/api/projects/{pid}/panels/{panel}/video?name=mire-son.mp4", sample.read_bytes(), raw=True)
@@ -55,8 +59,8 @@ def main():
         p = request(f"/api/projects/{pid}")
         cut = p["layout"]["id"]
         p["anim"] = {"tracks": {
-            cut + ".a": [{"t": 0, "v": 0.25, "e": "linear"}, {"t": 2, "v": 0.65}],
-            cut + ".b": [{"t": 0, "v": 0.35, "e": "linear"}, {"t": 2, "v": 0.75}],
+            cut + ".a": [{"t": 0, "v": 0.25, "e": "ease2"}, {"t": 2, "v": 0.65}],
+            cut + ".b": [{"t": 0, "v": 0.35, "e": "in2"}, {"t": 2, "v": 0.75}],
             "page.bg": [{"t": 0, "v": "#b36bff", "e": "linear"}, {"t": 2, "v": "#247dbc"}],
             "page.fill": [{"t": 0, "v": "#ffffff", "e": "linear"}, {"t": 2, "v": "#ffe8b0"}],
             "page.gutter": [{"t": 0, "v": 8, "e": "linear"}, {"t": 2, "v": 60}]}}
