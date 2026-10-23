@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Contrôle Mac — lecteur / export</title>
+<style>body{font:16px system-ui;background:#181818;color:#eee;margin:20px}button{padding:12px;background:#b36bff;border:0;border-radius:8px}iframe{width:100%;height:65vh;border:0}pre{white-space:pre-wrap}</style>
+<h1>Contrôle Mac — page animée</h1>
+<p>Capture à 720p aux instants 0, 1 et 1,8 seconde (25 images/s).</p>
+<button id="compare">Comparer le lecteur et l’export</button>
+<pre id="result">Prêt.</pre>
+<iframe id="preview" src="index.html"></iframe>
+<script>
+compare.onclick = async () => {
+  compare.disabled = true;
+  const results = [];
+  try {
+    const api = preview.contentWindow.AlivePlayer;
+    const inst = [...api._pages][0];
+    const [w, h] = inst.data.size, scale = 720 / Math.min(w, h);
+    const even = x => Math.max(2, Math.round(x / 2) * 2);
+    for (const t of [0, 1, 1.8]) {
+      result.textContent = `Comparaison à ${t} seconde…`;
+      const canvas = await api.capture(inst, t, even(w * scale), even(h * scale));
+      const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const endpoint = location.pathname.replace(/export\/.*/, '').replace('/projects/', '/api/projects/');
+      const response = await fetch(endpoint + 'compare?t=' + t, {method:'POST', body:png});
+      const data = await response.json();
+      if (!response.ok) throw new Error(JSON.stringify(data));
+      results.push(data);
+    }
+    result.textContent = JSON.stringify(results, null, 2);
+  } catch (error) { result.textContent = error.stack || String(error); }
+  finally { compare.disabled = false; }
+};
+</script>

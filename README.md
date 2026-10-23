@@ -21,6 +21,8 @@ Il faut Python 3.10+, ffmpeg et ffprobe dans le PATH, et `pip install -r require
 
 ### Application autonome (DMG)
 
+[Télécharger la dernière version Mac](https://github.com/grosdada/Alive-Video/releases/latest).
+
 Sur un Mac Apple Silicon (M1 et suivants), macOS 14 ou plus récent : ouvrez le
 DMG, glissez **Alive Video** dans **Applications**, puis lancez-la. Rien à installer.
 Le menu **▦** permet de rouvrir l'interface, d'afficher les planches et de quitter.

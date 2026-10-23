@@ -96,7 +96,7 @@ def main():
         # La couleur du fond et la position des traits doivent évoluer dans le MP4.
         import numpy as np
         frames = subprocess.check_output([str(BIN / "ffmpeg"), "-v", "error", "-i", str(video),
-                                         "-vf", "select=eq(n\\,0)+eq(n\\,40)", "-vsync", "0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                                         "-vf", "select='eq(n,0)+eq(n,40)'", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         frames = np.frombuffer(frames, np.uint8).reshape(2, 720, 720, 3)
         assert abs(frames[0].astype(float) - frames[1]).mean() > 5
         report = {"info": info, "project": pid, "panel": panel, "preview": preview, "video": str(video),
