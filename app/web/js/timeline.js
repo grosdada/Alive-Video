@@ -16,6 +16,7 @@ const setPageOn = (v) => { try { localStorage.setItem("av-tl-page", v ? "1" : "0
 
 const fmt = (s) => (Math.round(s * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " s";
 const AFTER = 0.5;                  // « dupliquer juste apres » : la copie commence 0,5 s apres la selection
+const macContextClick = e => e.ctrlKey && /Mac/.test(navigator.platform);
 
 export class Timeline {
   constructor(app, host) {
@@ -156,7 +157,9 @@ export class Timeline {
       this.keyMenu(e.clientX, e.clientY);
     });
     d.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
+      // Sur Mac, Ctrl + clic produit un menu contextuel après pointerdown.
+      // Laisser contextmenu conserver le groupe au lieu de retirer cette clé ici.
+      if (e.button !== 0 || macContextClick(e)) return;
       e.stopPropagation();
       this.closeMenu();
       const add = e.shiftKey || e.ctrlKey || e.metaKey;
