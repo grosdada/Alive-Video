@@ -1,6 +1,7 @@
 """Reglages propres au poste : local_settings.json a la racine du depot (jamais versionne).
 
-Les cles API ne repartent jamais vers l'interface en clair : public() les masque.
+Aucune cle d'IA ni de service de calcul : Alive-Video ne genere rien. Restent le serveur (port 8792, a cote
+d'Alive-Comics sur 8790) et la publication SSH.
 """
 
 import copy
@@ -13,25 +14,10 @@ FILE = ROOT / "local_settings.json"
 _lock = threading.Lock()
 
 DEFAULTS = {
-    "server": {"host": "127.0.0.1", "port": 8790},
-    "llm": {
-        "provider": "anthropic",
-        "anthropic": {"key": "", "model": "claude-sonnet-5-5"},
-        "openai": {"key": "", "model": "gpt-5"},
-        "google": {"key": "", "model": "gemini-2.5-flash"},
-        "deepseek": {"key": "", "model": "deepseek-chat"},
-    },
-    "fal": {"key": "", "concurrency": 4, "resolution": "768P", "price_per_second": 0.08},
-    "workers": [
-        {"name": "HITCHCOCK", "url": "http://192.168.1.60:8188", "enabled": True},
-        {"name": "CASSAVETES", "url": "http://192.168.1.89:8188", "enabled": True},
-        {"name": "FORD", "url": "http://192.168.1.92:8188", "enabled": True},
-    ],
-    "render": {"seed": 904231, "megapixels": 0.8, "long_side_max": 1344, "steps": 28},
+    "server": {"host": "127.0.0.1", "port": 8792},
     "deploy": {"host": "", "port": 65002, "user": "", "key": "~/.ssh/alive_comics_hostinger", "root": "", "url": ""},
 }
-SECRET_PATHS = [("llm", "anthropic", "key"), ("llm", "openai", "key"), ("llm", "google", "key"),
-                ("llm", "deepseek", "key"), ("fal", "key")]
+SECRET_PATHS = []
 
 
 def _merge(base, extra):

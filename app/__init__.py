@@ -1,1 +1,1 @@
-"""Alive-Comics : application locale de creation de planches de BD animees."""
+"""Alive-Video : planches de BD dont les cases sont des videos, exportees en un seul fichier video."""

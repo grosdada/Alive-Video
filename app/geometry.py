@@ -110,17 +110,6 @@ def compute(page, layout):
     return live
 
 
-def gen_size(w, h, mp=0.8, long_max=1344):
-    """Taille de generation H3 : ~0,8 Mpx au ratio de la case, cote long <= 1344, multiples de 32."""
-    ratio = w / h
-    gw = math.sqrt(mp * 1024 * 1024 * ratio)
-    gh = gw / ratio
-    if max(gw, gh) > long_max:
-        s = long_max / max(gw, gh)
-        gw, gh = gw * s, gh * s
-    return max(32, round(gw / 32) * 32), max(32, round(gh / 32) * 32)
-
-
 def placement(bb, iw, ih, view=None):
     """Image dans la boite de la case : couverture * zoom, decalage (ox, oy) en fraction de la boite."""
     v = view or {}
@@ -132,6 +121,43 @@ def placement(bb, iw, ih, view=None):
     oy = max(-my, min(my, float(v.get("oy") or 0)))
     return {"x": bb["x0"] + bb["w"] / 2 - dw / 2 + ox * bb["w"], "y": bb["y0"] + bb["h"] / 2 - dh / 2 + oy * bb["h"],
             "w": dw, "h": dh}
+
+
+def grow(poly, px):
+    """Elargit le polygone depuis son centre (la video passe sous le trait)."""
+    cx = sum(p[0] for p in poly) / len(poly)
+    cy = sum(p[1] for p in poly) / len(poly)
+    out = []
+    for x, y in poly:
+        dx, dy = x - cx, y - cy
+        d = (dx * dx + dy * dy) ** 0.5 or 1
+        out.append([round(x + dx / d * px, 1), round(y + dy / d * px, 1)])
+    return out
+
+
+def offset(poly, d):
+    """Polygone convexe decale de d vers l'exterieur (d < 0 : vers l'interieur), coins en onglet : le contour
+    d'un trait d'epaisseur w = offset(+w/2) moins offset(-w/2), comme le trait du canevas (lineJoin miter)."""
+    n = len(poly)
+    s = sum(poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1] for i in range(n))
+    sign = 1 if s > 0 else -1                 # sens de parcours : normale sortante de chaque cote
+    lines = []
+    for i in range(n):
+        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        L = math.hypot(dx, dy) or 1
+        nx, ny = dy / L * sign, -dx / L * sign
+        lines.append(((x1 + nx * d, y1 + ny * d), (dx, dy)))
+    out = []
+    for i in range(n):
+        (p, r), (q, s2) = lines[i - 1], lines[i]
+        den = r[0] * s2[1] - r[1] * s2[0]
+        if abs(den) < 1e-9:
+            out.append([q[0], q[1]])
+            continue
+        t = ((q[0] - p[0]) * s2[1] - (q[1] - p[1]) * s2[0]) / den
+        out.append([p[0] + r[0] * t, p[1] + r[1] * t])
+    return out
 
 
 # ------------------------------------------------------------------ decoupages prets (memes que l'editeur)

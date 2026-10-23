@@ -2,22 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "livre-essais",
-      "runtimeExecutable": "python",
-      "runtimeArgs": [
-        "tools/serve_range.py",
-        "dist/livre-essais",
-        "8765"
-      ],
-      "port": 8765
-    },
-    {
-      "name": "alive-dev",
+      "name": "alive-video-dev",
       "runtimeExecutable": "python",
       "runtimeArgs": [
         "tools/dev_instance.py"
       ],
-      "port": 8791
+      "port": 8793
     }
   ]
 }

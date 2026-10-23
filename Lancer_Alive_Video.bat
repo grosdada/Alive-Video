@@ -1,5 +1,5 @@
 @echo off
 cd /d "%~dp0"
-title Alive Comics
+title Alive Video
 python -m app
 pause

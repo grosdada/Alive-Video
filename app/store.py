@@ -1,10 +1,11 @@
 """Projets : un dossier par planche dans projects/<id>/.
 
     project.json   la planche (format, cadres, cases, reglages) : source unique de verite
-    assets/        images et sons importes
-    start/         image de depart de chaque case, a la taille de generation (envoyee a H3)
-    renders/       toutes les variantes rendues
-    export/        la page jouable (lecteur + videos), refaite a chaque export
+    assets/        images, videos (originaux) et sons importes
+    proxies/       copie de lecture de chaque video (+ affiche, + version a l'envers) : app/media.py
+    page/          page.jpg (fond, affiches, traits), frames.png (traits), thumb.jpg
+    export/        la page jouable (lecteur + videos de lecture), refaite a chaque apercu
+    video/         les exports MP4 de la page (app/videoexport.py)
 """
 
 import json
@@ -53,11 +54,13 @@ def list_projects():
                 continue
             pg = p.get("page") or {}
             review = {"ok": 0, "todo": 0, "redo": 0}           # pastilles du mode edition (orange = pas encore vue)
+            videos = 0
             for panel in (p.get("panels") or {}).values():
                 review[panel.get("review") if panel.get("review") in ("ok", "redo") else "todo"] += 1
+                videos += 1 if (panel.get("video") or {}).get("file") else 0
             out.append({"id": p["id"], "name": p.get("name", p["id"]), "updated": p.get("updated", 0), "review": review,
                         "created": p.get("created", 0), "panels": len(p.get("panels", {})), "thumb": p.get("thumb"),
-                        "w": pg.get("width"), "h": pg.get("height")})
+                        "w": pg.get("width"), "h": pg.get("height"), "videos": videos})
     return sorted(out, key=lambda x: -x["updated"])
 
 
@@ -65,7 +68,7 @@ def create(name, page=None, layout=None):
     with _lock:
         pid = slug(name) + "-" + secrets.token_hex(2)
         d = PROJECTS / pid
-        for sub in ("assets", "start", "renders", "export"):
+        for sub in ("assets", "proxies", "export"):
             (d / sub).mkdir(parents=True, exist_ok=True)
         now = time.time()
         p = {"id": pid, "name": name or "Nouvelle planche", "created": now, "updated": now, "version": 1,
@@ -78,7 +81,7 @@ def get(pid):
     return json.loads((pdir(pid) / "project.json").read_text(encoding="utf-8"))
 
 
-NEW_PANEL = {"camera": {"id": "arc", "fields": {}}, "action": {"id": "fige", "fields": {}}, "audio": {"mode": "none"}}
+NEW_PANEL = {"view": {"zoom": 1, "ox": 0, "oy": 0}}
 
 
 def new_panel():
