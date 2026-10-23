@@ -401,6 +401,7 @@ class App {
     const keepAnim = this.animMode && this._reloading;
     this._tlKeep = keepAnim ? this.timeline?.state() : null;   // selection et copie de la timeline
     this.selected = null; this.undo = []; this.redo = [];
+    this._timelineStates = new Map();
     this.animPlaying = false;
     if (!keepAnim) { this.animMode = false; this.animT = 0; this.selectedCut = null; }
     this.timeline = null;
@@ -679,7 +680,9 @@ class App {
   }
   pushUndo(snap) { this.undo.push(snap); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   restore(snap) {
-    const keep = this.timeline?.state();               // cles et lignes choisies, retrouvees par leur instant
+    // Un déplacement change l'instant des clés : reprendre la sélection de cet
+    // état de l'historique, plutôt que chercher les nouveaux instants dans l'ancien.
+    const keep = this._timelineStates?.get(snap) || this.timeline?.state();
     Object.assign(this.project, JSON.parse(snap));
     this._last = snap; this._lastKind = null;          // l'etat courant : la prochaine action s'annule jusqu'ici
     if (this.selected && !this.project.panels[this.selected]) this.selected = null;

@@ -313,6 +313,11 @@ export class Timeline {
   }
 
   paintSel() {
+    const history = this.app._timelineStates;
+    if (history) {
+      history.set(this.app.snapshot(), this.state());
+      if (history.size > 160) history.delete(history.keys().next().value);
+    }
     for (const [key, r] of Object.entries(this.rows || {})) {
       r.row.classList.toggle("sel", !!this.selRows && this.selRows.includes(key));
       r.row.classList.toggle("cut", r.row.dataset.cut === this.app.selectedCut);
