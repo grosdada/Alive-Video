@@ -1,8 +1,8 @@
 """Effets d'une case (onglet « Filtres » du mode edition) : definitions, nettoyage, et calcul NumPy pour l'export.
 
 Le lecteur (player/alive-player.js, WebGL) applique EXACTEMENT les memes formules, passe par passe : toute
-modification ici doit etre reportee dans les shaders FS_* du lecteur (et inversement). tools/check_match.py compare
-une image du lecteur et la meme image calculee ici.
+modification ici doit etre reportee dans les shaders FS du lecteur (et inversement). Controle : POST
+/api/projects/<id>/compare (une capture du lecteur contre la meme image calculee ici, doc § 11).
 
 Chaine d'une case, dans l'ordre :
   0. source : l'image ou la video placee dans la case (cadrage), puis la couleur de base (onglet Couleur)

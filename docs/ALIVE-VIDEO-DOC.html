@@ -1,0 +1,457 @@
+<meta charset="utf-8">
+<title>Alive Video, documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,800;125,900&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Documentation de reference d'Alive-Video : meme charte que celle d'Alive-Comics, accent pourpre. */
+:root {
+  --bg: #f3f2ef; --panel: #ffffff; --ink: #18160f; --muted: #686258; --line: #d9d5cc; --stroke: #18160f;
+  --accent: #7a35d6; --accent-soft: #b36bff; --code: #efece6;
+  --ok: #2f8f4e; --todo: #c97f12; --redo: #c8382e;
+  --display: "Archivo", "Arial Black", "Helvetica Neue", sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121212; --panel: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --line: #2e2e2e; --stroke: #000000;
+    --accent: #b36bff; --accent-soft: #b36bff; --code: #232120;
+    --ok: #45b56a; --todo: #f2a33c; --redo: #e0483e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121212; --panel: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --line: #2e2e2e; --stroke: #000000;
+  --accent: #b36bff; --accent-soft: #b36bff; --code: #232120;
+  --ok: #45b56a; --todo: #f2a33c; --redo: #e0483e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 17px/1.58 var(--body); margin: 0; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 72px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-weight: 900; font-stretch: 125%; font-size: clamp(32px, 5.6vw, 58px); line-height: 1; text-transform: uppercase; }
+h2 { font-weight: 800; font-stretch: 112%; font-size: clamp(22px, 3vw, 30px); line-height: 1.1; text-transform: uppercase; }
+h3 { font-weight: 800; font-stretch: 112%; font-size: 16px; letter-spacing: .02em; text-transform: uppercase; margin-top: 6px; }
+p { margin: 0; max-width: 72ch; }
+a { color: var(--accent); }
+.eyebrow { font: 600 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: clamp(18px, 2vw, 20px); line-height: 1.5; max-width: 66ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: .84em; background: var(--code); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; overflow-x: auto;
+      font: 13px/1.55 var(--mono); }
+pre code { background: none; padding: 0; font-size: inherit; }
+header.hero { display: grid; gap: 18px; padding-block: 12px 22px; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px 28px; font-variant-numeric: tabular-nums; }
+.stat b { display: block; font: 900 28px/1 var(--display); font-stretch: 125%; }
+.stat span { font-size: 13px; color: var(--muted); }
+nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px 18px; }
+nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2 260px; column-gap: 32px; }
+nav.toc li { margin: 2px 0; break-inside: avoid; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover { color: var(--accent); }
+section { padding-block: 30px 4px; border-top: 3px solid var(--stroke); margin-top: 32px; display: grid; gap: 14px; }
+.sec-head { display: grid; gap: 6px; }
+ul, ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+li { max-width: 72ch; }
+li::marker { color: var(--accent); }
+.steps { list-style: none; padding: 0; counter-reset: s; display: grid; gap: 10px; }
+.steps > li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 10px; max-width: none;
+              background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
+.steps > li::before { content: counter(s); font: 900 24px/1 var(--display); font-stretch: 125%; color: var(--accent); grid-row: span 2; }
+.steps > li > b { font-size: 16px; }
+.steps > li > div { min-width: 0; display: grid; gap: 6px; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 11.5px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; }
+td code { white-space: nowrap; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 28px; }
+.block { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.note { border-left: 4px solid var(--accent); padding: 10px 14px; background: var(--panel); border-radius: 0 4px 4px 0; }
+.warn { border-left: 4px solid var(--redo); padding: 10px 14px; background: var(--panel); border-radius: 0 4px 4px 0; }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 3px; }
+.dot.ok { background: var(--ok); } .dot.todo { background: var(--todo); } .dot.redo { background: var(--redo); }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 680px; height: auto; }
+.diagram text { font-family: var(--body); fill: var(--ink); font-size: 14px; }
+.diagram .q { fill: var(--muted); font-size: 12px; }
+.diagram .bx { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+.diagram .hot { fill: color-mix(in srgb, var(--accent-soft) 22%, transparent); stroke: var(--accent); stroke-width: 2; }
+.diagram .ln { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.diagram .ah { fill: var(--muted); }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); display: grid; gap: 6px; }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <p class="eyebrow">Alive Video · documentation de référence · état au 23 octobre 2026</p>
+  <h1>Alive Video,<br>la documentation</h1>
+  <p class="lead">La même application qu'Alive-Comics, en version vidéo : on découpe une planche en cases, on dépose une vidéo
+    dans chaque case, on règle couleurs, cadrage, vitesse et une pile d'effets, et la planche entière sort en un seul fichier
+    MP4. Ce document dit tout ce qu'il faut pour l'utiliser, la faire évoluer ou la reprendre ailleurs. À lire avec
+    <code>CLAUDE.md</code> (consignes pour Claude Code).</p>
+  <div class="stats">
+    <div class="stat"><b>1</b><span>vidéo (ou image) par case</span></div>
+    <div class="stat"><b>7</b><span>effets empilables, + opacité, vitesse, envers, volume</span></div>
+    <div class="stat"><b>1</b><span>calcul : le lecteur (WebGL) et l'export (NumPy) font les mêmes passes</span></div>
+    <div class="stat"><b>~1/255</b><span>écart moyen mesuré entre lecteur et export</span></div>
+    <div class="stat"><b>0</b><span>génération : ni H3, ni ComfyUI, ni IA</span></div>
+  </div>
+  <nav class="toc" aria-label="Sommaire">
+    <p class="eyebrow">Sommaire</p>
+    <ol>
+      <li><a href="#concept">Le concept</a></li>
+      <li><a href="#lancer">Lancer, passer sur un autre PC</a></li>
+      <li><a href="#architecture">Architecture et fichiers</a></li>
+      <li><a href="#donnees">Modèle de données</a></li>
+      <li><a href="#planche">Fabriquer une planche</a></li>
+      <li><a href="#videos">Les vidéos des cases</a></li>
+      <li><a href="#editeur">L'éditeur de case</a></li>
+      <li><a href="#effets">Les effets, formule par formule</a></li>
+      <li><a href="#lecteur">Le lecteur</a></li>
+      <li><a href="#export">L'export vidéo</a></li>
+      <li><a href="#controle">Contrôle lecteur / export</a></li>
+      <li><a href="#accueil">L'accueil, les livres, la publication</a></li>
+      <li><a href="#api">L'API complète</a></li>
+      <li><a href="#retire">Ce qui a été retiré d'Alive-Comics</a></li>
+      <li><a href="#lecons">Leçons, limites et pistes</a></li>
+    </ol>
+  </nav>
+</header>
+
+<section id="concept">
+  <div class="sec-head"><p class="eyebrow">1 · Le concept</p><h2>Une page de BD qui est une vidéo</h2></div>
+  <ul>
+    <li>Une planche garde tout d'une page de BD : des cases (découpage façon komawari, traits penchés), des gouttières, un
+      ordre de lecture. Chaque case contient une vidéo (ou une image fixe).</li>
+    <li>Toutes les cases jouent ensemble sur une seule horloge, celle de la page : l'aperçu montre exactement la vidéo qui
+      sera exportée. Un mode « au survol » garde l'esprit d'Alive-Comics (une case joue sous la souris).</li>
+    <li>Chaque case a ses réglages : couleur, cadrage, début et fin, boucle, vitesse, lecture à l'envers, opacité, volume,
+      et une pile d'effets (flou, couleur, N&amp;B · sépia · teinte, vignette, grain, halation, aberration chromatique).</li>
+    <li>Sortie : la page entière en MP4 (durée, résolution et images par seconde au choix), les sons des vidéos, les sons
+      ajoutés et la musique de la page mélangés. Ou la page jouable en HTML (page seule, livre), publiée par lien.</li>
+    <li>Rien n'est généré : les vidéos sont celles de l'auteur. Aucune clé d'IA, aucune machine de calcul.</li>
+  </ul>
+</section>
+
+<section id="lancer">
+  <div class="sec-head"><p class="eyebrow">2 · Démarrer</p><h2>Lancer, passer sur un autre PC</h2></div>
+  <ol class="steps">
+    <li><b>Outils</b><div><p>Python 3.10 ou plus, Git, et <code>ffmpeg</code> / <code>ffprobe</code> dans le PATH (import des
+      vidéos, export).</p></div></li>
+    <li><b>Code</b><div><pre><code>git clone https://github.com/grosdada/Alive-Video.git
+cd Alive-Video
+pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</code></pre></div></li>
+    <li><b>Lancer</b><div><p><code>Lancer_Alive_Video.bat</code> (ou <code>python -m app</code>), puis
+      <a href="http://127.0.0.1:8792">http://127.0.0.1:8792</a>. Port 8792 : Alive-Comics garde le 8790, les deux
+      tournent côte à côte. Un second lancement ouvre juste le navigateur (port exclusif). Instance de test :
+      <code>python tools/dev_instance.py</code> → port 8793 (mêmes dossiers : tester sur une copie <code>zz-…</code>).</p></div></li>
+    <li><b>Ce qui n'est pas dans Git</b><div><p><code>projects/</code> (planches, vidéos importées, copies de lecture, exports),
+      <code>data/</code> (livres, projets de rangement, préréglages, registre des publications, journal),
+      <code>local_settings.json</code> (port, publication). Les copier pour changer de PC ; ne jamais les versionner.</p></div></li>
+  </ol>
+</section>
+
+<section id="architecture">
+  <div class="sec-head"><p class="eyebrow">3 · Architecture</p><h2>Comment c'est construit</h2></div>
+  <div class="diagram">
+    <svg viewBox="0 0 940 230" role="img" aria-label="Architecture : interface, serveur, lecteur WebGL et export NumPy">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
+      <rect class="bx" x="10" y="20" width="190" height="60" rx="4"/><text x="105" y="46" text-anchor="middle">Application app/web</text><text class="q" x="105" y="66" text-anchor="middle">découpage, médias, inspecteur</text>
+      <rect class="bx" x="270" y="20" width="200" height="60" rx="4"/><text x="370" y="46" text-anchor="middle">Serveur 127.0.0.1:8792</text><text class="q" x="370" y="66" text-anchor="middle">app/server.py · API JSON</text>
+      <rect class="bx" x="540" y="20" width="190" height="60" rx="4"/><text x="635" y="46" text-anchor="middle">Copies de lecture</text><text class="q" x="635" y="66" text-anchor="middle">app/media.py · ffmpeg</text>
+      <rect class="hot" x="270" y="130" width="200" height="66" rx="4"/><text x="370" y="156" text-anchor="middle">Lecteur WebGL</text><text class="q" x="370" y="176" text-anchor="middle">player/ · aperçu + éditeur de case</text>
+      <rect class="hot" x="540" y="130" width="190" height="66" rx="4"/><text x="635" y="156" text-anchor="middle">Export MP4</text><text class="q" x="635" y="176" text-anchor="middle">videoexport.py + effects.py</text>
+      <rect class="bx" x="790" y="130" width="140" height="66" rx="4"/><text x="860" y="156" text-anchor="middle">Fichier .mp4</text><text class="q" x="860" y="176" text-anchor="middle">projects/&lt;id&gt;/video/</text>
+      <path class="ln" d="M200 50H268" marker-end="url(#a)"/><path class="ln" d="M470 50H538" marker-end="url(#a)"/>
+      <path class="ln" d="M370 80V128" marker-end="url(#a)"/><path class="ln" d="M450 80L590 128" marker-end="url(#a)"/>
+      <path class="ln" d="M730 163H788" marker-end="url(#a)"/>
+      <path class="ln" d="M472 163H538" stroke-dasharray="5 4"/><text class="q" x="505" y="152" text-anchor="middle">mêmes passes</text>
+    </svg>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Fichier</th><th>Rôle</th></tr>
+    <tr><td><code>app/server.py</code></td><td>Serveur HTTP (stdlib, port exclusif, journal <code>data/server.log</code>, QuickEdit coupé), fichiers avec requêtes Range, toute l'API. Les gros envois (vidéos) sont écrits sur le disque au fil de l'eau (<code>data/uploads/</code>).</td></tr>
+    <tr><td><code>app/store.py</code></td><td>Planches : un dossier par planche, <code>project.json</code> source de vérité, enregistrement sous verrou, numéro <code>rev</code>.</td></tr>
+    <tr><td><code>app/media.py</code></td><td>Vidéo importée : analyse (ffprobe), copie de lecture, affiche, copie à l'envers (par morceaux).</td></tr>
+    <tr><td><code>app/effects.py</code></td><td>Définition des effets (interface et nettoyage) et leur calcul NumPy / OpenCV, passe par passe, en 8 bits.</td></tr>
+    <tr><td><code>app/videoexport.py</code></td><td>Export MP4 de la page : grilles des cases, décodage des originaux, rendu image par image en parallèle, son, file d'attente ; image fixe et contrôle lecteur / export.</td></tr>
+    <tr><td><code>app/assemble.py</code></td><td>Page jouable (<code>export/</code> : lecteur, copies de lecture liées en dur, images, sons égalisés, données), livres.</td></tr>
+    <tr><td><code>app/edit.py</code></td><td>Retouches d'une case (nettoyées, bornées), cadrage, sons ajoutés, suivi ; préréglages de piles d'effets.</td></tr>
+    <tr><td><code>app/compose.py</code>, <code>geometry.py</code></td><td>Image de la page (affiches) côté serveur ; géométrie des cases identique au JavaScript, placement, polygones élargis et décalés.</td></tr>
+    <tr><td><code>app/sounds.py</code>, <code>publish.py</code>, <code>settings.py</code></td><td>Sons sans doublon ; publication SSH et étagère ; réglages du poste.</td></tr>
+    <tr><td><code>app/web/</code></td><td>Application : <code>main.js</code> (accueil, éditeur de planche, export), <code>forms.js</code>, <code>editor.js</code> (cadres), <code>exporter.js</code> (page.jpg), <code>api.js</code>.</td></tr>
+    <tr><td><code>player/</code></td><td>Lecteur (<code>alive-player.js</code>, WebGL), livre (<code>book.html</code>), éditeur de case (<code>alive-edit.js/.css</code>), bruit du grain (<code>grain.png</code>, <code>tools/make_grain.py</code>), étagère.</td></tr>
+  </table></div>
+  <h3>Rangement d'une planche</h3>
+  <pre><code>projects/&lt;id&gt;/project.json          la planche (source de vérité)
+              assets/                originaux importés : vidéos, images, sons
+              proxies/&lt;nom&gt;.mp4      copie de lecture ; &lt;nom&gt;.jpg affiche ; &lt;nom&gt;.rev.mp4 copie à l'envers
+              page/                  page.jpg (fond, cases, affiches, traits), frames.png (traits), thumb.jpg
+              export/                la page jouable : index.html, book.js, manga_data.js, videos/, images/, sons/, grain.png
+              video/                 les exports MP4 (un fichier par export, jamais effacés)
+              compare/               dernier contrôle lecteur / export (lecteur.png, export.png, ecart-x8.png)</code></pre>
+</section>
+
+<section id="donnees">
+  <div class="sec-head"><p class="eyebrow">4 · Modèle de données</p><h2>Les clés d'une case</h2></div>
+  <div class="tbl"><table>
+    <tr><th>Clé de <code>panels[case]</code></th><th>Contenu</th></tr>
+    <tr><td><code>video</code></td><td>Écrit par le serveur à l'import : <code>file</code> (original), <code>proxy</code>, <code>poster</code>, <code>w, h</code> (à l'affichage), <code>fps</code> (texte, ex. <code>30000/1001</code>), <code>fps_f</code>, <code>frames</code>, <code>duration</code>, <code>audio</code>, <code>name</code>, URL.</td></tr>
+    <tr><td><code>image</code></td><td>Image fixe : <code>file, url, w, h, name</code>. Une case a une vidéo OU une image.</td></tr>
+    <tr><td><code>view</code></td><td>Cadrage : <code>{zoom ≥ 1, ox, oy}</code> ; le média couvre la case × zoom, décalé de <code>ox, oy</code> (fraction de la boîte, borné).</td></tr>
+    <tr><td><code>edit</code></td><td>Retouches, appliquées par le lecteur ET par l'export : <code>grade {sat, bright, contrast, temp, hue}</code>, <code>range [début, fin]</code> (numéros d'images inclus), <code>loop</code> (false = une fois puis figée), <code>speed</code> (0,25 à 4), <code>reverse</code>, <code>opacity</code>, <code>volume</code>, <code>filters</code> (pile d'effets). Les valeurs neutres sont omises.</td></tr>
+    <tr><td><code>extraSounds</code></td><td>Sons ajoutés : <code>[{file, name, volume, loop}]</code>.</td></tr>
+    <tr><td><code>review</code></td><td><span class="dot todo"></span><code>null</code> à voir · <span class="dot ok"></span><code>"ok"</code> · <span class="dot redo"></span><code>"redo"</code> à retoucher.</td></tr>
+  </table></div>
+  <p>Au niveau de la planche : <code>name</code>, <code>page</code> (format, sens, taille, fond, traits, gouttière, marge),
+    <code>layout</code> (arbre de découpes), <code>geometry</code> (cases calculées), <code>pageSound</code> (musique),
+    <code>export {duration (null = auto), height, fps}</code>, <code>published</code>, <code>rev</code>.</p>
+  <div class="note"><p>Qui écrit quoi : l'application garde la main sur le découpage, les médias et le cadrage ; le serveur et
+    l'aperçu sur <code>edit</code>, <code>extraSounds</code>, <code>review</code>, <code>export</code> et <code>published</code>
+    (un enregistrement de la planche ne les remplace jamais, sauf pour une case nouvelle, qui garde ce que l'application y a
+    recopié en changeant de découpage).</p></div>
+  <h3>Ce que reçoit le lecteur (manga_data.js)</h3>
+  <pre><code>{ page, frames, size: [W, H], fps, duration, bg, sound?: {src, vol},
+  panels: [{ id, rect, poly (élargi sous le trait), view,
+             media: {kind: "video", src, rev?, w, h, fps, frames, audio} | {kind: "image", src, w, h},
+             fx: {grade, range, loop, speed, reverse, opacity, volume, filters}, more: [{src, vol, loop}] }] }</code></pre>
+</section>
+
+<section id="planche">
+  <div class="sec-head"><p class="eyebrow">5 · Dans l'application</p><h2>Fabriquer une planche</h2></div>
+  <div class="grid2">
+    <div class="block"><h3>Page et découpage (inchangés)</h3><ul>
+      <li>Formats : page BD, manga, 4:5, carré, écran 9:16 ; vertical ou horizontal.</li>
+      <li>Découpages prêts ou au hasard ; glisser un trait le déplace, glisser un bout l'incline (Maj : droit) ; couper,
+        supprimer, pivoter ; fond, traits, gouttière, marge ; Ctrl+Z / Ctrl+Y.</li>
+    </div>
+    <div class="block"><h3>Chaque case</h3><ul>
+      <li>Glisser une vidéo (ou une image) sur la case, ou cliquer. L'éditeur montre l'affiche (première image) ; molette pour
+        zoomer, glisser pour recadrer.</li>
+      <li>Icônes de la case : média, filtres (ouvre l'éditeur de case dans l'aperçu), sons. Étiquette : durée du passage,
+        vitesse, envers, nombre d'effets.</li>
+      <li>Inspecteur : infos de la vidéo, cadrage, « Lecture et effets » (vitesse, en boucle, à l'envers, volume, opacité,
+        résumé de la pile), sons ajoutés.</li>
+    </div>
+  </div>
+  <p>Barre du haut : <b>Exporter la vidéo</b>, Aperçu, ✏️ Éditer (aperçu en mode édition), 📁 Dossier, Publier, ⚙ Réglages
+    (publication). Réglages de page (rien de sélectionné) : format, couleurs, traits, musique de la page, résumé de l'export.</p>
+</section>
+
+<section id="videos">
+  <div class="sec-head"><p class="eyebrow">6 · Les vidéos</p><h2>Original, copie de lecture, copie à l'envers</h2></div>
+  <ul>
+    <li>L'original reste intact dans <code>assets/</code> : l'export le relit en pleine qualité.</li>
+    <li>Le lecteur lit une copie (<code>app/media.py</code>) : H.264, 1280 px au plus, images/s constantes (celles de
+      l'original, 60 au plus), une image clé toutes les 15, AAC stéréo. Faite à l'import, en une seconde environ par
+      seconde de vidéo HD.</li>
+    <li><b>Mêmes images</b> : la copie et l'export appliquent le même filtre <code>fps</code> à l'original ; l'image n de
+      la copie est l'image n de l'export (temps = n / fps).</li>
+    <li><b>Mêmes couleurs</b> : la copie passe par le RGB tel que ffmpeg lit l'original, puis est convertie en BT.709 et
+      balisée en entier (matrice, primaires, transfert, plage). L'export relit l'original de la même façon. Une vidéo sans
+      balise de couleur est donc vue pareil des deux côtés.</li>
+    <li>Rotation des téléphones appliquée, pixels non carrés corrigés.</li>
+    <li>Lecture inversée : copie à l'envers faite à la demande (morceaux de 2 s retournés puis mis bout à bout, le son
+      retourné d'un bloc). Le filtre <code>reverse</code> de ffmpeg garde tout en mémoire : jamais sur une vidéo entière.</li>
+  </ul>
+  <h3>Le temps d'une case (identique dans le lecteur et l'export)</h3>
+  <pre><code>n = images de la vidéo ; [a, b] = début / fin (toute la vidéo par défaut) ; L = b - a + 1
+k = floor(t × vitesse × fps + 1e-6)            t = temps de la case (celui de la page)
+en boucle : k = k mod L     une fois : k = min(k, L - 1)  (puis l'image reste figée)
+image = b - k si à l'envers, sinon a + k</code></pre>
+  <p>Durée de la page (aperçu et export) : réglée à l'export, ou automatique = le plus long passage (L / fps / vitesse) ;
+    5 s s'il n'y a pas de vidéo. La page boucle à cette durée.</p>
+</section>
+
+<section id="editeur">
+  <div class="sec-head"><p class="eyebrow">7 · Retoucher</p><h2>L'éditeur de case</h2></div>
+  <p>Dans l'aperçu servi par l'application : « ✏️ Éditer », puis un clic sur une case (ou directement
+    <code>?edit=1&amp;case=p3</code>, ce que fait l'icône filtres). La case est montrée agrandie, calculée comme dans la page.
+    Tout est enregistré au fil de l'eau (0,7 s après le dernier geste) ; « ↺ Annuler mes retouches » revient à l'ouverture.
+    Barre espace : lecture / pause de toute la page.</p>
+  <div class="tbl"><table>
+    <tr><th>Onglet</th><th>Contenu</th></tr>
+    <tr><td>Lecture (vidéo)</td><td>Bande d'images (glisser : voir une image, la page s'y cale), poignées début / fin, « Début ici », « Fin ici », « Tout le clip » ; en boucle ou une fois ; vitesse.</td></tr>
+    <tr><td>Couleur</td><td>Saturation, luminosité, contraste, température, teinte ; « Neutre » ; « Appliquer à toute la page ». Passe avant les effets.</td></tr>
+    <tr><td>Cadrage</td><td>Zoom, horizontal, vertical (dans les marges disponibles : on ne sort jamais de l'image) ; l'image de la page suit.</td></tr>
+    <tr><td><b>Filtres</b></td><td>Opacité, vitesse, lecture inversée, volume ; puis la pile : « ＋ Ajouter un effet » (flou, couleur, N&amp;B · sépia · teinte, vignette, grain, halation, aberration chromatique), chaque effet avec ses réglages, ▲ ▼ pour l'ordre (appliqués de haut en bas), ● pour le couper sans le retirer, ✕ pour le retirer ; « 💾 Enregistrer la pile » (préréglage pour toutes les planches, ★ pour l'appliquer) ; « Copier les effets sur toute la page ».</td></tr>
+    <tr><td>Son</td><td>Volume du son de la vidéo ; sons ajoutés (volume, boucle ou une fois, retirer, glisser un fichier) ; musique de la page (importer, remplacer, retirer, volume).</td></tr>
+  </table></div>
+  <p>Aussi : pastilles de suivi <span class="dot todo"></span><span class="dot ok"></span><span class="dot redo"></span> sur
+    chaque case et compteur page / livre ; fenêtre déplaçable et agrandissable ; « 🏠 Accueil » et « ✎ Planche ».</p>
+  <div class="note"><p>La capture de l'autre logiciel (onglets Transform | Effects | Anim) n'est pas arrivée avec la demande :
+    l'onglet Filtres suit la liste écrite (effets ajoutés à la demande, réglés, empilés ; opacité, vitesse, envers, volume).
+    À ajuster sur la capture si la présentation doit coller davantage.</p></div>
+</section>
+
+<section id="effets">
+  <div class="sec-head"><p class="eyebrow">8 · Le calcul</p><h2>Les effets, formule par formule</h2></div>
+  <p>Une seule définition, deux exécutions : les shaders <code>FS</code> de <code>player/alive-player.js</code> et
+    <code>app/effects.py</code>. Toute modification d'un côté doit être faite de l'autre.</p>
+  <ul>
+    <li><b>Grille</b> d'une case : alignée sur les pixels de la sortie, de <code>floor(x0 × échelle)</code> à
+      <code>ceil(x1 × échelle)</code> ; coordonnées u, v de 0 à 1 sur cette grille, v = 0 en haut. Poser la case dans la page
+      ne rééchantillonne donc rien.</li>
+    <li><b>Passes</b> : source placée + couleur de base, puis un passage par effet, chacun arrondi à 8 bits (une texture RGBA
+      8 bits dans le lecteur, <code>q8()</code> dans l'export) ; enfin la case est posée dans son polygone (élargi sous le
+      trait), l'opacité mélangeant avec la couleur du fond.</li>
+    <li><b>Unité</b> des tailles : un millième de la hauteur de la page. Même rendu à l'écran et en 4K.</li>
+  </ul>
+  <div class="tbl"><table>
+    <tr><th>Effet</th><th>Réglages</th><th>Formule</th></tr>
+    <tr><td>Couleur (et onglet Couleur)</td><td>exposition (IL), contraste, saturation, température, vert ↔ magenta, teinte</td><td><code>c × 2^IL</code> ; <code>(c − 0,5) × contraste + 0,5</code> ; mélange avec la luma Rec. 709 ; <code>+ (0,07, 0, −0,07) × temp + (0,05, −0,06, 0,05) × teinte</code> ; rotation autour de l'axe des gris. Tout est affine : une matrice 3 × 4 dans l'export.</td></tr>
+    <tr><td>Flou</td><td>rayon (σ en unités)</td><td>Gaussienne séparable (horizontale puis verticale), rayon ⌈3σ⌉, bords prolongés. Au-delà de σ = 6 px : réduction d'un facteur ⌈σ / 6⌉ (bilinéaire, centres alignés), flou à σ / f, agrandissement bilinéaire, des deux côtés.</td></tr>
+    <tr><td>N&amp;B · sépia · teinte</td><td>mode, couleur, intensité</td><td>N&amp;B : luma ; sépia : matrice classique bornée ; teinte : noir → couleur au gris moyen → blanc. Mélange par l'intensité.</td></tr>
+    <tr><td>Vignette</td><td>intensité, taille, douceur</td><td><code>d = |2(uv − 0,5)| / √2</code> ; <code>c × (1 − intensité × smoothstep((d − taille) / douceur))</code> (ellipse qui suit la case).</td></tr>
+    <tr><td>Grain</td><td>intensité, taille, animé</td><td>Bruit 256 × 256 commun (<code>player/grain.png</code>), échantillonné en bilinéaire répété à <code>uv × taille de la case en unités / taille + décalage</code> ; décalage de la suite R2 pour l'image n de la page (n = temps × fps de l'export) et la graine de la case ; <code>c + (g − 0,5) × intensité × 0,6</code>.</td></tr>
+    <tr><td>Halation</td><td>intensité, seuil, rayon, couleur</td><td><code>h = clamp((luma − seuil) / (1 − seuil))</code>, flouté (comme le flou) ; <code>c + couleur × h × intensité × 2</code>.</td></tr>
+    <tr><td>Aberration chromatique</td><td>décalage (unités au coin)</td><td>Rouge lu à <code>0,5 + (uv − 0,5)(1 + k)</code>, bleu à <code>(1 − k)</code>, vert en place ; <code>k = décalage / demi-diagonale de la case</code>.</td></tr>
+    <tr><td>Opacité · vitesse · envers · volume</td><td>—</td><td>Opacité : mélange avec le fond de page. Vitesse et envers : règle du temps (§ 6) ; le son suit (hauteur gardée). Volume : gain du son de la vidéo.</td></tr>
+  </table></div>
+</section>
+
+<section id="lecteur">
+  <div class="sec-head"><p class="eyebrow">9 · Ce que voit le lecteur</p><h2>Le lecteur</h2></div>
+  <ul>
+    <li>Page = <code>page.jpg</code> (fond, cases, affiches) + un canevas WebGL (WebGL 2 si possible : mipmaps pour réduire
+      les vidéos) + <code>frames.png</code> (traits) par-dessus. Vues supplémentaires (éditeur de case, agrandissement au
+      double-clic) : leur propre canevas.</li>
+    <li>Les vidéos jouent nativement (le son vient d'elles) et se recalent sur l'horloge de la page quand elles dérivent de
+      plus de 0,25 s ; en pause, l'image exacte est affichée. Une texture n'est recalculée que si une nouvelle image est
+      arrivée, si un réglage a changé ou si le grain change d'image.</li>
+    <li>Barre de lecture : lecture / pause (barre espace), position (glisser), temps ; « Tout » ou « Au survol ».</li>
+    <li>Son : bouton « Activer le son » (règle des navigateurs : rien avant le premier geste), « Son » coupe tout ; noir et
+      blanc, plein écran, livre (flèches, clavier, balayage).</li>
+  </ul>
+</section>
+
+<section id="export">
+  <div class="sec-head"><p class="eyebrow">10 · Sortie</p><h2>L'export vidéo</h2></div>
+  <ol class="steps">
+    <li><b>Réglages</b><div><p>Durée (auto = le plus long passage, ou en secondes, 10 min au plus), résolution par le petit
+      côté (480p, 720p, 1080p, 1440p, 4K : une page BD 2:3 en 1080p donne 1080 × 1620, un écran 9:16 1080 × 1920), images
+      par seconde (24, 25, 30, 50, 60). Gardés dans la planche.</p></div></li>
+    <li><b>Préparation</b><div><p>Page jouable remise à jour (sons égalisés), fond et traits dessinés à la résolution de
+      l'export (traits en onglet, comme le canevas), puis chaque vidéo décodée une fois dans l'original : filtre fps, début /
+      fin, mise à l'échelle de son placement (zone pour réduire, bilinéaire pour agrandir), recadrée sur la case, en images
+      brutes sur le disque (lues ensuite à volonté : boucle, envers, vitesse).</p></div></li>
+    <li><b>Rendu</b><div><p>Chaque image : chaque case calculée par <code>effects.py</code>, posée dans la page, traits
+      par-dessus ; plusieurs images en parallèle (fils), envoyées à x264 (CRF 18, BT.709). Mesure : 3 cases, 7 effets,
+      1080 × 1920, ~0,08 s par image sur 7 fils (25 s pour 10 s de vidéo à 30 im/s).</p></div></li>
+    <li><b>Son</b><div><p>Piste de chaque vidéo (début / fin, envers, <code>atempo</code> pour la vitesse, volume, en boucle ou
+      une fois puis silence), sons ajoutés et musique de la page (les fichiers égalisés du lecteur), mélangés sans
+      normalisation, limiteur à −0,2 dB, AAC 192 kb/s.</p></div></li>
+    <li><b>Fichier</b><div><p><code>projects/&lt;id&gt;/video/&lt;nom&gt;-&lt;date&gt;.mp4</code> (H.264 + AAC, faststart). Un
+      export à la fois, suivi dans la fenêtre (avancement, temps restant) et par une pastille à l'accueil. Les exports ne
+      sont jamais effacés.</p></div></li>
+  </ol>
+</section>
+
+<section id="controle">
+  <div class="sec-head"><p class="eyebrow">11 · Même résultat</p><h2>Contrôle lecteur / export</h2></div>
+  <p>Le lecteur capture la page à un instant donné, à la taille de l'export (<code>AlivePlayer.capture</code> : vidéos
+    calées sur l'image exacte), le serveur calcule la même image et donne l'écart par case, loin des traits
+    (<code>POST /api/projects/&lt;id&gt;/compare?t=…</code>, images dans <code>compare/</code>). Dans la console de l'aperçu :</p>
+  <pre><code>const inst = [...AlivePlayer._pages][0], [PW, PH] = inst.data.size, k = 1080 / Math.min(PW, PH);
+const ev = (x) => Math.max(2, Math.round(x / 2) * 2);
+const cv = await AlivePlayer.capture(inst, 2.0, ev(PW * k), ev(PH * k));
+const blob = await new Promise(ok => cv.toBlob(ok, "image/png"));
+await (await fetch(location.pathname.replace(/export\/.*/, "").replace("/projects/", "/api/projects/") + "compare?t=2", { method: "POST", body: blob })).json();</code></pre>
+  <div class="tbl"><table>
+    <tr><th>Case (23/10/2026, 1080p)</th><th>Effets</th><th>Écart moyen</th><th>99 % des pixels sous</th></tr>
+    <tr><td>Grand flou + vignette</td><td>flou σ ≈ 49 px (chemin réduit), vignette</td><td>0,4 / 255</td><td>2</td></tr>
+    <tr><td>Mire à l'envers</td><td>sépia, flou</td><td>0,9</td><td>5</td></tr>
+    <tr><td>Bureau (vidéo H3)</td><td>grain, vignette, halation, aberration, grain, N&amp;B, à l'envers, × 0,5</td><td>1,3 à 1,6</td><td>8 à 9</td></tr>
+    <tr><td>Paysage zoomé × 1,8</td><td>couleur de base, halation, aberration 20, teinte</td><td>2,3</td><td>13</td></tr>
+  </table></div>
+  <p>Le grain, la vignette, le flou et la halation tombent au pixel près. Le reste de l'écart est sur les contours de la
+    source : le navigateur lit la copie de lecture (H.264 1280 px, mipmaps), l'export lit l'original (mise à l'échelle par
+    ffmpeg) ; à demi-pixel près pour le placement de la source.</p>
+</section>
+
+<section id="accueil">
+  <div class="sec-head"><p class="eyebrow">12 · S'y retrouver</p><h2>L'accueil, les livres, la publication</h2></div>
+  <ul>
+    <li>Identiques à Alive-Comics : onglets Planches | Livres, vignettes ou liste, recherche, tris, étoiles d'après les
+      pastilles, projets de rangement (glisser une planche sur un projet ; <code>data/folders.json</code>), livres repliables
+      (pages réordonnées, aperçu, édition dans le livre, publication).</li>
+    <li>Pastille « ● export 42 % » sur la planche (et sur ses livres) pendant un export.</li>
+    <li>Publication par SSH (Réglages : adresse du site, hôte, utilisateur, dossier, clé du poste). Rien n'est réglé par
+      défaut : Alive-Video a besoin de son propre dossier en ligne (la clé par défaut est celle d'Alive-Comics,
+      <code>~/.ssh/alive_comics_hostinger</code>, déjà connue de l'hébergement).</li>
+  </ul>
+</section>
+
+<section id="api">
+  <div class="sec-head"><p class="eyebrow">13 · Référence</p><h2>L'API complète</h2></div>
+  <p>JSON, sauf les envois de fichiers (corps = octets bruts). Erreur : statut 4xx/5xx et <code>{"error": "…"}</code>.</p>
+  <div class="tbl"><table>
+    <tr><th>Route</th><th>Rôle</th></tr>
+    <tr><td><code>GET /api/info · presets · layouts</code></td><td>Version et ffmpeg ; définitions des effets, choix d'export, vitesses ; découpages prêts.</td></tr>
+    <tr><td><code>GET|PUT /api/settings</code></td><td>Réglages du poste (serveur, publication).</td></tr>
+    <tr><td><code>GET /api/exports</code></td><td>Exports vidéo en cours (toutes planches).</td></tr>
+    <tr><td><code>GET|POST /api/userpresets</code></td><td>Piles d'effets enregistrées : <code>{kind: "filters", name, value}</code> (ou <code>delete: true</code>).</td></tr>
+    <tr><td><code>GET|PUT /api/books</code>, <code>POST /api/books/&lt;id&gt;/export|publish|reveal</code></td><td>Livres.</td></tr>
+    <tr><td><code>GET|PUT /api/folders</code></td><td>Projets de rangement.</td></tr>
+    <tr><td><code>GET|POST /api/projects</code>, <code>GET|PUT|DELETE /api/projects/&lt;id&gt;</code></td><td>Planches (création avec format, sens, découpage ou <code>layout</code> ; corbeille).</td></tr>
+    <tr><td><code>…/&lt;id&gt;/rev · compose · update</code></td><td>Version ; page.jpg + géométrie côté serveur ; nom, page, musique, découpage, <code>export</code>.</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/panels/&lt;case&gt;/video|image|sound?name=</code></td><td>Poser une vidéo (copie de lecture faite tout de suite) ou une image dans la case ; ajouter un son.</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/panels/&lt;case&gt;</code></td><td>Pilotage : <code>{view, edit, review}</code> (retouches nettoyées).</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/upload?kind=video|image|page|extra&amp;panel=&amp;name=</code></td><td>Envoi générique (musique de page : <code>kind=page</code>).</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/edit/&lt;case&gt;</code></td><td>Retouches de l'aperçu : <code>edit, view, extra, review, pageVolume</code> (case <code>_</code> = page) ; remonte la page jouable.</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/export · reveal · publish</code></td><td>Page jouable ; ouvrir son dossier ; publier.</td></tr>
+    <tr><td><code>GET|POST …/&lt;id&gt;/video</code>, <code>POST …/video/reveal</code></td><td>Export MP4 : état, vidéos faites, réglages, durée auto ; lancer <code>{duration, height, fps}</code> ; ouvrir le dossier.</td></tr>
+    <tr><td><code>GET …/&lt;id&gt;/still?t=&amp;height=</code></td><td>Une image de l'export (PNG).</td></tr>
+    <tr><td><code>POST …/&lt;id&gt;/compare?t=</code></td><td>Contrôle : capture du lecteur (PNG) contre l'image de l'export.</td></tr>
+  </table></div>
+</section>
+
+<section id="retire">
+  <div class="sec-head"><p class="eyebrow">14 · Le tri</p><h2>Ce qui a été retiré d'Alive-Comics</h2></div>
+  <div class="grid2">
+    <div class="block"><h3>Retiré</h3><ul>
+      <li>MiniMax H3 : arcs, orbite 360, demi-arcs, travellings, boucles, prompts, régénération, variantes.</li>
+      <li>ComfyUI, fal, la file de rendus, les machines, l'indice de mouvement.</li>
+      <li>Le relief (cartes de profondeur), les couches (SAM, BiRefNet, Qwen, LaMa, Depth Pro), Lytro.</li>
+      <li>Le réalisateur IA, l'IA de case, la traduction ; la génération de sons (MiniMax Music, voix IA, bruitages).</li>
+      <li>Le tremblé et les retouches propres aux boucles H3 (ralentis, fondu au raccord, aller-retour).</li>
+    </ul></div>
+    <div class="block"><h3>Gardé</h3><ul>
+      <li>Le découpage des planches, l'accueil, les projets de rangement, les livres, la publication.</li>
+      <li>L'édition de la page ; par case : couleurs, cadrage, vitesse (et désormais début / fin, boucle, envers, opacité,
+        volume, filtres).</li>
+      <li>Les sons importés sans doublon, la musique de page, les pastilles de suivi et les étoiles.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="lecons">
+  <div class="sec-head"><p class="eyebrow">15 · Mémoire</p><h2>Leçons, limites et pistes</h2></div>
+  <ul>
+    <li>« Même résultat » tient parce que les deux côtés font les mêmes passes sur la même grille, arrondies pareil : ne
+      jamais ajouter un effet d'un seul côté. Rejouer le contrôle (§ 11) après toute retouche d'un shader ou de
+      <code>effects.py</code>.</li>
+    <li>Poser une case dans la page sans rééchantillonner (grille alignée sur les pixels) a divisé l'écart et le temps de
+      calcul ; la couleur en une matrice affine aussi (6 fois plus rapide, identique à 2·10⁻⁷ près).</li>
+    <li>ffmpeg : balises de couleur à poser sur les images (<code>setparams</code>) ; les options <code>-color_primaries</code>
+      seules ne suffisent pas. <code>-shortest</code> au mixage final coupait la dernière image.</li>
+    <li>Volet de navigateur caché : <code>requestAnimationFrame</code> ralentit ; pour une capture, le remplacer par un
+      <code>MessageChannel</code> (comme dans Alive-Comics).</li>
+    <li>Pistes : export d'un livre entier en une vidéo (pages à la suite), fondus entre pages ; aperçu de l'export
+      (<code>/still</code>) comme vignette de l'accueil ; volume au-delà de 100 % (il faudrait WebAudio, muet en
+      <code>file://</code>) ; animation du cadrage dans le temps (onglet « Anim » de l'autre logiciel) ; décalage du départ
+      d'une case dans la page.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Dépôt <a href="https://github.com/grosdada/Alive-Video">grosdada/Alive-Video</a> · lancement <code>Lancer_Alive_Video.bat</code>
+    → <code>http://127.0.0.1:8792</code> · instance de test <code>python tools/dev_instance.py</code> → port 8793.</p>
+  <p>Né d'une copie d'Alive-Comics (main @ 21c6c4a) le 23 octobre 2026.</p>
+</footer>
+</div>

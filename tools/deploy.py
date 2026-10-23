@@ -1,7 +1,7 @@
 """Met en ligne un dossier (livre ou page) sur un hebergement SSH (Hostinger), sans mot de passe.
 
-    python tools/deploy.py dist/livre-essais                 # vers la racine du site
-    python tools/deploy.py dist/livre-essais --to essais     # vers https://<site>/essais/
+    python tools/deploy.py data/books/<livre>                # vers la racine du site
+    python tools/deploy.py data/books/<livre> --to essais    # vers https://<site>/essais/
 
 Reglages dans local_settings.json (jamais dans le depot) :
     "deploy": {"host": "46.202.158.181", "port": 65002, "user": "u335969729",

@@ -15,7 +15,6 @@ ajoutes des cases et la musique de la page, melanges.
 Un export a la fois (file d'attente), suivi par GET /api/projects/<id>/video.
 """
 
-import json
 import math
 import os
 import queue
@@ -180,7 +179,8 @@ class Panel:
             from PIL import Image
             with Image.open(d / self.image["file"]) as im:
                 im = im.convert("RGB")
-                im = im.resize((self.dw, self.dh), Image.LANCZOS if self.dw < im.width else Image.BICUBIC)
+                # agrandir : bilineaire, comme la texture du lecteur ; reduire : Lanczos (le plus proche des mipmaps mesure)
+                im = im.resize((self.dw, self.dh), Image.LANCZOS if self.dw < im.width else Image.BILINEAR)
                 arr = np.asarray(im)[cy:cy + ch, cx:cx + cw]
             self.src = np.ascontiguousarray(arr)[None]
             return
@@ -190,7 +190,7 @@ class Panel:
         if one is not None:                              # une seule image (apercu fixe)
             a = b = one
         raw = tmp / f"{self.id}.raw"
-        flags = "area" if self.dw < v["w"] else "bicubic"
+        flags = "area" if self.dw < v["w"] else "bilinear"           # comme la texture du lecteur
         vf = (f"fps={v['fps']},trim=start_frame={a}:end_frame={b + 1},"
               f"scale={self.dw}:{self.dh}:flags={flags},crop={cw}:{ch}:{cx}:{cy},format=rgb24")
         media.ffmpeg(["-i", str(d / v["file"]), "-map", "0:v:0", "-vf", vf, "-fps_mode", "passthrough", "-an",
@@ -386,8 +386,8 @@ def _tempo(speed):
 def build_audio(P, s, tmp, export_dir, log=print):
     """Melange des sons de la page -> fichier m4a (ou None s'il n'y a aucun son)."""
     D = s["seconds"]
-    inputs, chains = [], []
-    p, d = P["p"], P["d"]
+    inputs = []
+    d = P["d"]
     for pn in P["panels"]:
         v, e = pn.video, pn.edit
         vol = float(e.get("volume", 1))
