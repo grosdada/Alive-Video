@@ -77,7 +77,15 @@ Mac (`~/Alive-Video/projects`).
    - **Son** : volume de la vidéo, sons ajoutés, musique de la page.
 7. **🎞 Animate framing** (barre du haut) : le découpage s'anime. Une timeline s'ouvre sous la planche, une ligne par
    point d'attache des traits ; toucher une attache met la timeline sur sa ligne, la glisser pose une image clé à
-   l'instant de la tête de lecture. Clés déplaçables, courbes (douce, linéaire, accélère, ralentit, palier), suppression.
+   l'instant de la tête de lecture. Pendant ce mode, les vidéos des cases suivent la tête de lecture (repères pour
+   poser les clés). Timeline :
+   - glisser dans le vide = rectangle de sélection ; Maj ou Ctrl + clic = ajouter une clé ;
+   - glisser une clé choisie déplace toute la sélection ; Suppr efface ;
+   - clic droit sur une clé : dupliquer, copier / coller, courbe (ease in-out, linéaire, ease in, ease out, versions
+     fortes pour les ralentis marqués, palier) ;
+   - Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+A ;
+   - Maj + clic sur les noms de ligne = plusieurs lignes ; « ☰ Toutes les lignes », « ◆ Clé partout », « Tout effacer ».
+
    L'aperçu et la vidéo exportée suivent. Le bouton **🎨 Style de page** de la timeline (allumé ou éteint) ajoute les
    lignes du fond, de la couleur des cases, de la couleur et de l'épaisseur des traits, de la gouttière et de la marge,
    animables de la même façon (chaque ligne a son réglage, qui pose une clé). Les icônes des cases sont cachées.

@@ -399,6 +399,7 @@ class App {
     ensureCutIds(P.layout);                              // chaque trait a un identifiant (pistes d'animation)
     P.anim = P.anim && P.anim.tracks ? P.anim : { tracks: {} };
     const keepAnim = this.animMode && this._reloading;
+    this._tlKeep = keepAnim ? this.timeline?.state() : null;   // selection et copie de la timeline
     this.selected = null; this.undo = []; this.redo = [];
     this.animPlaying = false;
     if (!keepAnim) { this.animMode = false; this.animT = 0; this.selectedCut = null; }
@@ -748,7 +749,11 @@ class App {
   async uploadPage(strict) {
     if (!this.project) return;
     const sig = this.pageSig();
-    try { await pageImages(this.project, this.finalGeom(), pageAt(this.project.page, this.project.anim, animEnd(this.project.anim))); this._pageSig = sig; }
+    try {
+      const rev = await pageImages(this.project, this.finalGeom(), pageAt(this.project.page, this.project.anim, animEnd(this.project.anim)));
+      if (rev === this._rev + 1) this._rev = rev;   // notre propre vignette : pas de rechargement (il viderait l'annulation)
+      this._pageSig = sig;
+    }
     catch (e) { if (strict) throw e; console.warn(e); }
   }
 
@@ -999,7 +1004,16 @@ class App {
     const tgt = e.target instanceof Element ? e.target : document.body;
     if (!this.project || tgt.closest("input, textarea, select")) return;
     if (this.animMode && e.code === "Space") { e.preventDefault(); this.animToggle(); return; }
-    if (this.animMode && (e.key === "Delete" || e.key === "Backspace") && this.timeline?.sel) { e.preventDefault(); this.timeline.deleteKey(); return; }
+    const tl = this.animMode && this.timeline, mod = e.ctrlKey || e.metaKey, kk = e.key.toLowerCase();
+    if (tl) {                                       // cles de la timeline : effacer, dupliquer, copier / coller, tout
+      const any = tl.selList().length > 0;
+      if ((e.key === "Delete" || e.key === "Backspace") && any) { e.preventDefault(); tl.deleteKey(); return; }
+      if (mod && kk === "d" && any) { e.preventDefault(); tl.duplicate("head"); return; }
+      if (mod && kk === "c" && any && !String(getSelection?.() || "")) { e.preventDefault(); tl.copy(); return; }
+      if (mod && kk === "v" && tl.clip) { e.preventDefault(); tl.paste(); return; }
+      if (mod && kk === "a") { e.preventDefault(); tl.selectAll(); return; }
+      if (e.key === "Escape" && (any || tl.menu)) { tl.closeMenu(); tl.selSet = new Set(); tl.paintSel(); return; }
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.doRedo() : this.doUndo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); this.doRedo(); }
     else if (e.key === "Delete" && this.selected) this.deleteSelected();

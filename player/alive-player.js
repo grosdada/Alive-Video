@@ -91,12 +91,15 @@
   // ---------------------------------------------------------------- cadrage anime (« Animate framing »)
   // Le decoupage de la page bouge avec le temps : chaque bout de trait a sa piste d'images cles. Memes calculs que
   // app/web/js/geometry.js (editeur) et app/geometry.py (export video) : decoupe, courbes, traits en onglet.
-  function ease(e, u) {
+  function ease(e, u) {                    // memes courbes que app/geometry.py et app/web/js/geometry.js
     if (e === "linear") return u;
-    if (e === "in") return u * u * u;
-    if (e === "out") return 1 - (1 - u) * (1 - u) * (1 - u);
+    if (e === "in") return u ** 3;
+    if (e === "out") return 1 - (1 - u) ** 3;
+    if (e === "in2") return u ** 5;
+    if (e === "out2") return 1 - (1 - u) ** 5;
+    if (e === "ease2") return u < 0.5 ? 16 * u ** 5 : 1 - (-2 * u + 2) ** 5 / 2;
     if (e === "hold") return 0;
-    return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    return u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
   }
   function trackValue(keys, t, fb) {
     if (!keys || !keys.length) return fb;

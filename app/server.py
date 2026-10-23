@@ -478,8 +478,9 @@ class Handler(BaseHTTPRequestHandler):
             if name not in ("page.jpg", "frames.png", "thumb.jpg"):
                 raise ApiError("nom de fichier de page invalide")
             rel = store.write_file(pid, "page", name, self.body())
-            if name == "thumb.jpg":
-                store.mutate(pid, lambda p: p.update(thumb=f"/projects/{pid}/{rel}"))
+            if name == "thumb.jpg":                       # la planche change de numero : l'application le reprend
+                p = store.mutate(pid, lambda p: p.update(thumb=f"/projects/{pid}/{rel}"))
+                return self.send_json({"file": rel, "rev": p.get("rev")})
             return self.send_json({"file": rel})
         if sub == "edit" and len(parts) == 4 and m == "POST":     # mode edition de l'apercu : retouches d'une case
             b = self.jbody()

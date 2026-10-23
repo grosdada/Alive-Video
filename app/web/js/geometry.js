@@ -174,14 +174,28 @@ export function splitLeaf(layout, id, dir, newId, cutId) {
 // Chaque trait (decoupe) a un identifiant (c1, c2...) ; chacun de ses deux bouts (a, b) peut avoir une piste
 // d'images cles : anim = { tracks: { "c2.a": [{t (s), v (0..1), e}], ... } }. Entre deux cles, la valeur suit la
 // courbe de la premiere. MEME CALCUL dans player/alive-player.js et app/geometry.py (export video).
-export const EASES = [["ease", "Douce"], ["linear", "Linéaire"], ["in", "Accélère"], ["out", "Ralentit"], ["hold", "Palier"]];
+// courbes : [id, nom court (menu de la barre), nom long (clic droit sur une cle)]
+export const EASES = [
+  ["ease", "Ease in-out", "Ease in-out (douce : démarre et arrive en ralenti)"],
+  ["linear", "Linéaire", "Linéaire (vitesse constante)"],
+  ["in", "Ease in", "Ease in (démarre en ralenti, accélère)"],
+  ["out", "Ease out", "Ease out (ralentit à l'arrivée)"],
+  ["ease2", "Ease in-out fort", "Ease in-out fort (ralentis marqués aux deux bouts)"],
+  ["in2", "Ease in fort", "Ease in fort (long ralenti au départ)"],
+  ["out2", "Ease out fort", "Ease out fort (long ralenti à l'arrivée)"],
+  ["hold", "Palier", "Palier (reste sur place, puis saute à la clé suivante)"],
+];
 
+// memes formules dans app/geometry.py et player/alive-player.js
 export function ease(e, u) {
   if (e === "linear") return u;
-  if (e === "in") return u * u * u;
-  if (e === "out") return 1 - (1 - u) * (1 - u) * (1 - u);
+  if (e === "in") return u ** 3;
+  if (e === "out") return 1 - (1 - u) ** 3;
+  if (e === "in2") return u ** 5;
+  if (e === "out2") return 1 - (1 - u) ** 5;
+  if (e === "ease2") return u < 0.5 ? 16 * u ** 5 : 1 - (-2 * u + 2) ** 5 / 2;
   if (e === "hold") return 0;
-  return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+  return u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
 }
 
 export function trackValue(keys, t, fallback) {

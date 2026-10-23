@@ -312,3 +312,13 @@ small.animated { color: var(--accent); }
 /* dossier des videos exportees */
 input.folder { flex: 1; min-width: 260px; font-size: 12.5px; }
 .row.nowrap { flex-wrap: nowrap; align-items: center; }
+/* timeline : rectangle de selection des cles, menu du clic droit */
+.tl-marquee { position: absolute; z-index: 5; border: 1px solid var(--accent); background: rgba(179, 107, 255, .14); pointer-events: none; }
+.tl-key { cursor: grab; }
+.tl-menu { min-width: 260px; }
+.tl-menu button { display: flex; justify-content: space-between; gap: 18px; }
+.tl-menu button:disabled { opacity: .4; }
+.tl-menu kbd { font: 11px/1.6 inherit; color: var(--muted); }
+.tl-menu hr { border: 0; border-top: 1px solid #333; margin: 3px 6px; }
+.tl-grid { user-select: none; -webkit-user-select: none; }
+.tl-menu-head { padding: 4px 12px 2px; font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }

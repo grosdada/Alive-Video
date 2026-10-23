@@ -36,6 +36,7 @@ export class Editor {
     this.geom = null;
     this.drag = null;
     this.imgs = new Map();
+    this.vids = new Map();          // Animate framing : la video de chaque case, calee sur la tete de lecture
     this.svg.addEventListener("pointerdown", (e) => this.down(e));
     window.addEventListener("pointermove", (e) => this.move(e));
     window.addEventListener("pointerup", (e) => this.up(e));
@@ -92,6 +93,8 @@ export class Editor {
         im.setAttribute("x", pl.x); im.setAttribute("y", pl.y);
         im.setAttribute("width", pl.w); im.setAttribute("height", pl.h);
         grp.append(im);
+        // en Animate framing, la video elle-meme (copie de lecture), a l'instant de la tete de lecture
+        if (this.app.animMode && panel.video?.proxy_url) grp.append(this.liveVideo(g.id, panel.video.proxy_url, pl));
       }
       svg.append(grp);
     }
@@ -123,6 +126,54 @@ export class Editor {
       svg.append(gl);
     });
     if (!light) this.renderOverlay();
+    this.syncVideos();
+  }
+
+  // ---------------------------------------------------------------- videos calees sur la timeline
+  liveVideo(id, url, pl) {
+    let o = this.vids.get(id);
+    if (!o || o.url !== url) {
+      if (o) { o.v.pause(); o.v.removeAttribute("src"); o.v.load(); }
+      const v = document.createElement("video");
+      v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+      v.style.cssText = "width:100%;height:100%;object-fit:fill;display:block;pointer-events:none";
+      const fo = s("foreignObject", { class: "live-video" });
+      fo.append(v);
+      o = { id, url, v, fo, want: null };
+      // glisser la tete de lecture : une recherche a la fois, la derniere position demandee gagne
+      v.addEventListener("seeked", () => {
+        if (o.want == null || this.app.animPlaying) return;
+        const w = o.want; o.want = null;
+        if (Math.abs(v.currentTime - w) > 1e-3) v.currentTime = w;
+      });
+      v.addEventListener("loadeddata", () => this.syncVideos());
+      this.vids.set(id, o);
+    }
+    o.fo.setAttribute("x", pl.x); o.fo.setAttribute("y", pl.y);
+    o.fo.setAttribute("width", pl.w); o.fo.setAttribute("height", pl.h);
+    return o.fo;
+  }
+
+  // chaque video a l'image de la tete de lecture (meme regle que le lecteur : debut / fin, vitesse, envers, boucle) ;
+  // pendant la lecture elles jouent (a l'envers : image par image), hors du mode Animate framing elles s'arretent
+  syncVideos() {
+    const app = this.app, playing = app.animPlaying && app.animMode;
+    for (const o of this.vids.values()) {
+      const v = o.v, panel = this.project?.panels[o.id];
+      if (!app.animMode || !o.fo.isConnected || !panel?.video) { if (!v.paused) v.pause(); continue; }
+      if (v.readyState < 1) continue;                     // « loadeddata » relancera
+      const p = sourceTime(panel, app.animT), fps = panel.video.fps_f || 25;
+      if (playing && !p.rev && !p.hold) {
+        const rate = Math.max(0.25, Math.min(4, (panel.edit || {}).speed || 1));
+        if (v.playbackRate !== rate) v.playbackRate = rate;
+        if (Math.abs(v.currentTime - p.time) > 0.25) v.currentTime = p.time;
+        if (v.paused) v.play().catch(() => { /* lecture refusee : la case reste sur son image */ });
+        continue;
+      }
+      if (!v.paused) v.pause();
+      if (Math.abs(v.currentTime - p.time) < 0.5 / fps) { o.want = null; continue; }
+      if (v.seeking) o.want = p.time; else v.currentTime = p.time;
+    }
   }
 
   renderOverlay() {
@@ -284,6 +335,24 @@ export class Editor {
     else if (f.type.startsWith("image/")) this.app.importImage(g.id, f);
     else if (f.type.startsWith("audio/")) this.app.importAudio(g.id, f);
   }
+}
+
+// l'image de la video d'une case a l'instant t de la page, en secondes dans la copie de lecture (sens normal) :
+// meme regle que sourcePos (player/alive-player.js) et source_frame (app/videoexport.py)
+function sourceTime(panel, t) {
+  const v = panel.video, e = panel.edit || {};
+  const n = Math.max(1, v.frames | 0), fps = v.fps_f || 25;
+  let a = 0, b = n - 1;
+  if (Array.isArray(e.range) && e.range.length === 2) {
+    a = Math.max(0, Math.min(n - 1, e.range[0] | 0));
+    b = Math.max(a, Math.min(n - 1, e.range[1] | 0));
+  }
+  const span = b - a + 1;
+  let k = Math.floor(t * (e.speed || 1) * fps + 1e-6), hold = false;
+  if (e.loop !== false) k = ((k % span) + span) % span;
+  else if (k >= span - 1) { k = span - 1; hold = true; } else if (k < 0) k = 0;
+  const idx = e.reverse ? b - k : a + k;
+  return { time: (idx + 0.5) / fps, hold, rev: !!e.reverse };
 }
 
 // ce qu'on montre dans la case de l'editeur : l'image, ou l'affiche (premiere image) de la video

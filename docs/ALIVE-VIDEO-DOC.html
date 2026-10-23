@@ -322,10 +322,24 @@ image = b - k si à l'envers, sinon a + k</code></pre>
     <li><b>Glisser une attache</b> pose une clé à l'instant de la tête de lecture. La première clé d'une ligne en pose aussi
       une à 0 s avec la position de départ : le trait part de là où il était. En mode animation, une case peut se refermer
       entièrement (trait collé au bord) : elle disparaît à ces instants.</li>
-    <li>Timeline : clic = tête de lecture ; glisser un losange = changer son instant ; double-clic = une clé ;
-      « ◆ Clé ici » ; « Courbe » de la clé choisie (douce, linéaire, accélère, ralentit, palier : la courbe vaut jusqu'à la
-      clé suivante) ; « ✕ Clé » ou Suppr ; « Effacer le trait » (il garde sa position du moment) ; barre espace = lecture.
-      Les clés tombent sur les images de la vidéo exportée.</li>
+    <li><b>La règle</b> : clic ou glisser = tête de lecture. Barre espace = lecture.</li>
+    <li><b>Une ligne</b> : clic = tête de lecture et choix de la ligne ; double-clic = une clé ; clic droit = « ◆ Clé ici »,
+      coller, tout sélectionner.</li>
+    <li><b>Choisir des clés</b> : clic = une clé ; Maj ou Ctrl + clic = en ajouter ou en retirer ; glisser dans le vide =
+      rectangle de sélection, sur plusieurs lignes ; Ctrl+A = toutes. Glisser une clé choisie déplace toute la sélection
+      (dans les limites de la timeline ; une clé déplacée sur une autre la remplace).</li>
+    <li><b>Clic droit sur une clé</b> : dupliquer à la tête de lecture (Ctrl+D) ou juste après (0,5 s après la sélection),
+      copier (Ctrl+C) puis coller à la tête de lecture (Ctrl+V), courbe, supprimer (Suppr). Les copies deviennent la
+      sélection, prêtes à être glissées.</li>
+    <li><b>Courbes</b> (de la clé à la suivante, sur toutes les clés choisies, aussi dans la barre) : ease in-out (douce),
+      linéaire, ease in, ease out (puissance 3), ease in-out / in / out forts (puissance 5 : ralentis marqués), palier.</li>
+    <li><b>Lignes</b> : Maj ou Ctrl + clic sur leur nom = plusieurs lignes ; « ☰ Toutes les lignes » ; « ◆ Clé ici » (lignes
+      choisies) ; « ◆ Clé partout » (toutes les lignes d'un coup) ; « Effacer la ligne » et « Tout effacer » (chaque
+      ligne garde sa valeur du moment ; Ctrl+Z pour revenir).</li>
+    <li><b>Vidéos en repère</b> : en Animate framing, chaque case montre sa vidéo (copie de lecture, muette) à l'image de
+      la tête de lecture, même règle de temps que le lecteur (début / fin, vitesse, envers, boucle) ; pendant la lecture
+      elles jouent (à l'envers : image par image). Hors de ce mode, l'affiche.</li>
+    <li>Les clés tombent sur les images de la vidéo exportée.</li>
     <li>Hors du mode : la planche montre la page finie (fin de l'animation) ; glisser un trait animé décale toute son
       animation. Un nouveau découpage retire l'animation (Ctrl+Z la rend).</li>
     <li>La vidéo d'une case suit sa case : elle la remplit toujours (couverture × zoom du cadrage), recadrée à chaque instant.</li>
@@ -337,7 +351,8 @@ image = b - k si à l'envers, sinon a + k</code></pre>
   </ul>
   <p>Données : chaque trait (<code>split</code> de <code>layout</code>) a un <code>id</code> (c1, c2…) ;
     <code>project.anim = {tracks: {"c2.a": [{t, v, e}]}}</code> (t en secondes, v de 0 à 1 comme <code>a</code> / <code>b</code>,
-    e = courbe) ; style de page : pistes <code>"page.bg"</code>, <code>"page.fill"</code>, <code>"page.stroke"</code>
+    e = courbe : <code>ease</code>, <code>linear</code>, <code>in</code>, <code>out</code>, <code>ease2</code>,
+    <code>in2</code>, <code>out2</code>, <code>hold</code>) ; style de page : pistes <code>"page.bg"</code>, <code>"page.fill"</code>, <code>"page.stroke"</code>
     (v = couleur <code>#rrggbb</code>), <code>"page.strokeWidth"</code>, <code>"page.gutter"</code>, <code>"page.margin"</code>
     (v = valeur de la page). Interpolation identique dans <code>app/web/js/geometry.js</code> (éditeur), <code>player/alive-player.js</code>
     (lecteur : la page entière, fond, cases vides et traits compris, est alors dessinée par le canevas) et

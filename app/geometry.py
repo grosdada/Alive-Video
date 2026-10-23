@@ -168,19 +168,26 @@ def offset(poly, d):
 # Chaque trait a un identifiant (c1, c2...) ; chacun de ses deux bouts (a, b) peut avoir une piste d'images cles :
 # anim = {"tracks": {"c2.a": [{"t": secondes, "v": 0..1, "e": courbe}]}}. Entre deux cles, la valeur suit la courbe
 # de la premiere. MEME CALCUL que app/web/js/geometry.js et player/alive-player.js.
-EASES = ("ease", "linear", "in", "out", "hold")
+EASES = ("ease", "linear", "in", "out", "ease2", "in2", "out2", "hold")
 
 
 def ease(e, u):
+    """Courbe entre deux cles (u de 0 a 1). Les memes dans app/web/js/geometry.js et player/alive-player.js."""
     if e == "linear":
         return u
     if e == "in":
-        return u * u * u
+        return u ** 3
     if e == "out":
-        return 1 - (1 - u) * (1 - u) * (1 - u)
+        return 1 - (1 - u) ** 3
+    if e == "in2":
+        return u ** 5
+    if e == "out2":
+        return 1 - (1 - u) ** 5
+    if e == "ease2":
+        return 16 * u ** 5 if u < 0.5 else 1 - (-2 * u + 2) ** 5 / 2
     if e == "hold":
         return 0.0
-    return 4 * u * u * u if u < 0.5 else 1 - (-2 * u + 2) ** 3 / 2
+    return 4 * u ** 3 if u < 0.5 else 1 - (-2 * u + 2) ** 3 / 2
 
 
 def track_value(keys, t, fallback):
