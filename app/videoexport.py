@@ -325,6 +325,52 @@ def still(pid, t=0.0, height=720, overrides=None):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def compare(pid, png, t):
+    """Controle lecteur / export : png = la page capturee dans le lecteur (AlivePlayer.capture) a l'instant t, a la
+    taille de l'export. Meme image calculee ici, puis ecarts (0..255) par case, loin des traits (ou le lecteur pose
+    frames.png et l'export trace les traits lui-meme). Images gardees dans projects/<id>/compare/."""
+    import io
+    import cv2
+    from PIL import Image
+    cap = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+    H, W = cap.shape[:2]
+    p = store.get(pid)
+    s = settings_of(p)
+    s["height"] = min(W, H)
+    out = store.pdir(pid) / "compare"
+    out.mkdir(exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="av-cmp-", dir=store.pdir(pid)))
+    try:
+        P = prepare(pid, s, tmp, still=t)
+        if (P["W"], P["H"]) != (W, H):
+            raise ValueError(f"capture {W}x{H}, export {P['W']}x{P['H']} : capturer a la taille de l'export")
+        n = int(round(t * s["fps"]))
+        exp = render(P, n, s["fps"])
+        flat = P["stroke"][0]
+        stroke = np.zeros(H * W, np.uint8)
+        stroke[flat] = 255
+        stroke = cv2.dilate(stroke.reshape(H, W), np.ones((7, 7), np.uint8))
+        diff = np.abs(cap.astype(np.int16) - exp.astype(np.int16)).astype(np.uint8)
+        stats = []
+        for pn in P["panels"]:
+            X0, Y0, X1, Y1 = pn.box
+            zone = (pn.mask[..., 0] > 0.99) & (stroke[Y0:Y1, X0:X1] == 0)
+            d = diff[Y0:Y1, X0:X1][zone]
+            if not d.size:
+                continue
+            stats.append({"panel": pn.id, "pixels": int(zone.sum()), "mean": round(float(d.mean()), 3),
+                          "p99": int(np.percentile(d, 99)), "max": int(d.max()),
+                          "filters": [f["type"] for f in pn.filters]})
+        for pn in P["panels"]:
+            pn.src = None
+        Image.fromarray(cap).save(out / "lecteur.png")
+        Image.fromarray(exp).save(out / "export.png")
+        Image.fromarray(np.clip(diff.astype(np.int32) * 8, 0, 255).astype(np.uint8)).save(out / "ecart-x8.png")
+        return {"t": t, "size": [W, H], "panels": stats, "folder": str(out)}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ------------------------------------------------------------------ son
 def _tempo(speed):
     out, s = [], float(speed)

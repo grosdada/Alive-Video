@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Alive Comics</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%272%27 y=%272%27 width=%2728%27 height=%2728%27 rx=%275%27 fill=%27%23f2b45c%27/%3E%3Cpath d=%27M6 6h11v9H6zM19 6h7v20h-7zM6 17h11v9H6z%27 fill=%27%231b150c%27/%3E%3C/svg%3E">
+<title>Alive Video</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%272%27 y=%272%27 width=%2728%27 height=%2728%27 rx=%275%27 fill=%27%23b36bff%27/%3E%3Cpath d=%27M6 6h11v9H6zM19 6h7v20h-7zM6 17h11v9H6z%27 fill=%27%231a0b2b%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="alive-player.css">
 <style>
-  :root { --bg: #121212; --bar: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --accent: #f2b45c; --head: 54px; }
+  :root { --bg: #121212; --bar: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --accent: #b36bff; --accent-ink: #1a0b2b;
+          --head: 54px; --tr: 44px; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
                font: 15px/1.4 system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -23,13 +24,26 @@
            border-radius: 999px; padding: 5px 13px; cursor: pointer; white-space: nowrap; }
   button:hover:not(:disabled) { border-color: var(--accent); }
   button:disabled { opacity: .35; cursor: default; }
-  button[aria-pressed="true"] { background: var(--accent); color: #1b150c; border-color: var(--accent); }
-  #unlock { background: var(--accent); color: #1b150c; border-color: var(--accent); font-weight: 600; animation: pulse 1.6s infinite; }
+  button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  #unlock { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; animation: pulse 1.6s infinite; }
   @keyframes pulse { 50% { opacity: .6; } }
+  /* barre de lecture : la page entiere suit une seule horloge, comme la video exportee */
+  .transport { flex: 0 0 auto; height: var(--tr); display: flex; align-items: center; gap: 12px; padding: 0 16px;
+               background: #161616; border-bottom: 1px solid #242424; }
+  .transport #play { width: 40px; padding: 4px 0; font-size: 15px; }
+  .transport .time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 108px; }
+  .transport .seekbar { flex: 1; position: relative; height: 22px; cursor: pointer; touch-action: none; }
+  .transport .seekbar::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 4px; border-radius: 4px; background: #333; }
+  .transport .seekbar i { position: absolute; left: 0; top: 9px; height: 4px; border-radius: 4px; background: var(--accent); pointer-events: none; }
+  .transport .seekbar b { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%;
+                          background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .6); pointer-events: none; }
+  .transport .seg { display: inline-flex; border: 1px solid #444; border-radius: 999px; overflow: hidden; }
+  .transport .seg button { border: 0; border-radius: 0; padding: 4px 11px; background: #232323; }
+  .transport .seg button.on { background: var(--accent); color: var(--accent-ink); }
   main { position: relative; flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 10px 12px;
          touch-action: pan-y; }
-  .ac-page { width: min(calc(100vw - 24px), calc((100vh - var(--head) - 24px) * var(--ac-ratio)));
-             width: min(calc(100vw - 24px), calc((100dvh - var(--head) - 24px) * var(--ac-ratio))); }
+  .ac-page { width: min(calc(100vw - 24px), calc((100vh - var(--head) - var(--tr) - 24px) * var(--ac-ratio)));
+             width: min(calc(100vw - 24px), calc((100dvh - var(--head) - var(--tr) - 24px) * var(--ac-ratio))); }
   .ac-page.enter { animation: enter .35s ease-out; }
   @keyframes enter { from { opacity: 0; transform: translateX(var(--from, 30px)); } to { opacity: 1; transform: none; } }
   .side { position: absolute; top: 50%; transform: translateY(-50%); z-index: 8; width: 44px; height: 88px; padding: 0;
@@ -44,24 +58,33 @@
     header h1 { font-size: 14px; max-width: 34vw; }
     .side { display: none; }
     .wide { display: none; }
+    .transport { gap: 8px; padding: 0 10px; }
+    .transport .time { min-width: 0; }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">Alive Comics</h1>
+  <h1 id="title">Alive Video</h1>
   <span class="where" id="where"></span>
   <button type="button" id="prev" aria-label="Page précédente">◀</button>
   <button type="button" id="next" aria-label="Page suivante">▶</button>
   <span class="sp"></span>
-  <button type="button" id="reset" class="wide">Vue initiale</button>
   <button type="button" id="bw" aria-pressed="false">N&amp;B</button>
   <button type="button" id="snd" aria-pressed="true" hidden>Son</button>
   <button type="button" id="unlock" hidden>🔊 Activer le son</button>
   <button type="button" id="fs" class="wide">Plein écran</button>
   <button type="button" id="folder" hidden title="Ouvrir le dossier (index.html, vidéos, sons)">📁 Dossier</button>
-  <button type="button" id="edit" hidden aria-pressed="false" title="Retoucher les cases : tremblé, boucle, couleurs, sons, régénérer">✏️ Éditer</button>
+  <button type="button" id="edit" hidden aria-pressed="false" title="Retoucher les cases : lecture, couleur, cadrage, filtres, sons">✏️ Éditer</button>
 </header>
+<div class="transport">
+  <button type="button" id="play" title="Lecture / pause (barre espace)">⏸</button>
+  <div class="seekbar" id="seek" title="Aller à un instant de la page"><i></i><b></b></div>
+  <span class="time" id="time">0:00,0 / 0:00,0</span>
+  <span class="seg" id="mode" title="Tout : toutes les cases jouent ensemble, comme la vidéo exportée. Au survol : une case joue sous la souris.">
+    <button type="button" data-mode="all" class="on">Tout</button><button type="button" data-mode="hover">Au survol</button>
+  </span>
+</div>
 <main id="main">
   <button type="button" class="side prev" id="sprev" aria-label="Page précédente">‹</button>
   <button type="button" class="side next" id="snext" aria-label="Page suivante">›</button>
@@ -76,21 +99,24 @@
   const main = document.getElementById("main");
   const $ = (id) => document.getElementById(id);
   const touch = matchMedia("(pointer: coarse)").matches;
-  let cur = -1, inst = null;
+  let cur = -1, inst = null, mode = "all";
+  try { mode = localStorage.getItem("av-mode") === "hover" ? "hover" : "all"; } catch (_) { /* stockage indisponible */ }
   document.title = B.title;
   $("title").textContent = B.title;
   const single = B.pages.length < 2;
   for (const id of ["prev", "next", "sprev", "snext"]) $(id).hidden = single;
 
-  function show(i, dir) {
+  function show(i, dir, keepTime) {
     i = Math.max(0, Math.min(B.pages.length - 1, i));
     if (i === cur) return;
+    const t = inst && keepTime ? inst.t : 0, playing = inst ? inst.playing : true;
     if (inst) inst.destroy();
     const pg = B.pages[i];
-    inst = AlivePlayer.mount(main, pg.data, { base: pg.base, alt: pg.title || "", stamp: pg.stamp || "",
-                                              gauge: !!B.gauge || /[?&]gauge\b/.test(location.search) });
+    inst = AlivePlayer.mount(main, pg.data, { base: pg.base, alt: pg.title || "", stamp: pg.stamp || "", mode,
+                                              autoplay: keepTime ? playing : true });
+    if (t) AlivePlayer.seek(inst, t);
     inst.pageEl.style.setProperty("--from", (dir || 0) * 30 + "px");
-    inst.pageEl.classList.add("enter");
+    if (dir) inst.pageEl.classList.add("enter");
     main.insertBefore(inst.pageEl, $("sprev"));
     cur = i;
     $("where").textContent = single ? (pg.title && pg.title !== B.title ? pg.title : "")
@@ -111,6 +137,7 @@
     if (AlivePlayer.isLightboxOpen() || (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]"))) return;
     if (["ArrowRight", "PageDown"].includes(e.key)) go(1);
     if (["ArrowLeft", "PageUp"].includes(e.key)) go(-1);
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   });
   // balayage hors des cases pour tourner la page
   let sw = null;
@@ -124,7 +151,40 @@
     sw = null;
   });
 
-  $("reset").onclick = () => AlivePlayer.resetAll();
+  // ---- lecture : une horloge pour toute la page
+  const fmt = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, "0").replace(".", ",")}`; };
+  function togglePlay() { if (inst) AlivePlayer.play(inst, !inst.playing); }
+  $("play").onclick = togglePlay;
+  const bar = $("seek");
+  let seeking = false;
+  const seekAt = (e) => {
+    const r = bar.getBoundingClientRect();
+    AlivePlayer.seek(inst, Math.max(0, Math.min(0.9999, (e.clientX - r.left) / r.width)) * inst.duration);
+  };
+  bar.addEventListener("pointerdown", (e) => { if (!inst) return; seeking = true; bar.setPointerCapture(e.pointerId); seekAt(e); });
+  bar.addEventListener("pointermove", (e) => { if (seeking) seekAt(e); });
+  bar.addEventListener("pointerup", () => { seeking = false; });
+  (function loop() {
+    if (inst) {
+      const k = inst.t / inst.duration;
+      bar.querySelector("i").style.width = k * 100 + "%";
+      bar.querySelector("b").style.left = k * 100 + "%";
+      $("time").textContent = `${fmt(inst.t)} / ${fmt(inst.duration)}`;
+      $("play").textContent = inst.playing ? "⏸" : "▶";
+    }
+    requestAnimationFrame(loop);
+  })();
+  const paintMode = () => { for (const b of $("mode").children) b.classList.toggle("on", b.dataset.mode === mode); };
+  for (const b of $("mode").children) {
+    b.onclick = () => {
+      mode = b.dataset.mode;
+      try { localStorage.setItem("av-mode", mode); } catch (_) { /* stockage indisponible */ }
+      if (inst) AlivePlayer.setMode(inst, mode);
+      paintMode();
+    };
+  }
+  paintMode();
+
   // les navigateurs bloquent le son jusqu'au premier geste : un bouton bien visible (tout clic dans la page marche aussi)
   $("unlock").onclick = () => { $("unlock").hidden = true; };
   document.addEventListener("alive-unlocked", () => { $("unlock").hidden = true; });
@@ -141,7 +201,7 @@
     else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
   };
 
-  // servi par l'application Alive-Comics : bouton pour ouvrir le dossier de l'export dans l'explorateur
+  // servi par l'application Alive-Video : bouton pour ouvrir le dossier de l'export dans l'explorateur, mode edition
   const local = location.pathname.match(/^\/projects\/([a-z0-9-]+)\/export\//) ||
                 location.pathname.match(/^\/api\/books\/([a-z0-9-]+)\/file\//);
   if (local) {
@@ -149,11 +209,10 @@
     $("folder").onclick = () => fetch(location.pathname.startsWith("/projects/") ? `/api/projects/${local[1]}/reveal`
                                                                                  : `/api/books/${local[1]}/reveal`,
                                       { method: "POST" }).catch(() => {});
-    // mode edition : retouches des cases (lecteur + popup), seulement dans l'application
     window.AliveBookCtl = {
       B, kind: location.pathname.startsWith("/projects/") ? "project" : "book", id: local[1],
-      cur: () => cur, inst: () => inst, button: $("edit"),
-      remount(stamp) { const i = cur; if (stamp) B.pages[i].stamp = stamp; cur = -1; show(i, 0); },
+      cur: () => cur, inst: () => inst, button: $("edit"), togglePlay,
+      remount(stamp) { const i = cur; if (stamp) B.pages[i].stamp = stamp; cur = -1; show(i, 0, true); },
     };
     const css = document.createElement("link");
     css.rel = "stylesheet"; css.href = "/player/alive-edit.css";
@@ -165,10 +224,9 @@
   }
 
   const hint = $("hint");
-  hint.textContent = (touch ? "Touchez une case pour l'animer, glissez pour bouger la caméra · touchez deux fois pour agrandir"
-                            : "Survolez une case pour l'animer, glissez pour bouger la caméra · double-clic pour agrandir")
+  hint.textContent = (touch ? "Touchez deux fois une case pour l'agrandir" : "Barre espace : lecture / pause · double-clic sur une case pour l'agrandir")
                      + (single ? "" : (touch ? " · balayez à côté pour tourner la page" : " · ← → pour tourner la page"))
-                     + (B.pages.some(p => p.data.sound) ? (touch ? " · touchez pour le son" : " · cliquez pour activer le son") : "");
+                     + (B.pages.some(p => AlivePlayer.hasAudio(p.data)) ? (touch ? " · touchez pour le son" : " · cliquez pour activer le son") : "");
   setTimeout(() => hint.classList.add("off"), 6000);
   document.addEventListener("pointerdown", () => hint.classList.add("off"), { once: true });
 

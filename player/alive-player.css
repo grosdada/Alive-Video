@@ -1,48 +1,26 @@
-/* Alive-Comics : lecteur de pages animees (cases video pilotees image par image). */
+/* Alive-Video : lecteur de pages video (un canevas WebGL par page, traits des cadres par-dessus). */
 .ac-page { position: relative; margin: 0 auto; background: #fff; user-select: none; -webkit-user-select: none;
            box-shadow: 0 10px 40px rgba(0, 0, 0, .55); }
 .ac-page.bw { filter: grayscale(1) contrast(1.12); }
 .ac-page > img { display: block; width: 100%; height: 100%; pointer-events: none; }
+.ac-page > canvas.ac-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .ac-page > img.ac-frames { position: absolute; inset: 0; z-index: 5; }       /* traits des cadres au-dessus des videos */
-.ac-panel { position: absolute; overflow: hidden; cursor: ew-resize; touch-action: pan-y; }
-.ac-panel.static { cursor: default; }
-.ac-panel video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; opacity: 0;
-                  transition: opacity .25s; pointer-events: none; }
-.ac-panel video.ready { opacity: 1; }
-.ac-panel video.idle { opacity: 0; }
-.ac-panel video.idle.ready.on { opacity: 1; }
-.ac-panel .ac-gauge { position: absolute; left: 12%; right: 12%; bottom: 18px; height: 3px; border-radius: 3px;
-                      background: rgba(255, 255, 255, .28); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 6; }
-.ac-panel .ac-gauge i { position: absolute; top: -3px; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%;
-                        background: #f2b45c; }
-.ac-page.ac-show-gauge .ac-panel:hover .ac-gauge, .ac-page.ac-show-gauge .ac-panel.active .ac-gauge { opacity: 1; }
-.ac-page:not(.ac-show-gauge) .ac-gauge { display: none; }      /* tete de lecture : cachee par defaut */
-.ac-panel .ac-wait { position: absolute; right: 8px; top: 8px; font: 11px/1.4 system-ui, sans-serif; color: #fff;
-                     background: rgba(0, 0, 0, .55); padding: 2px 7px; border-radius: 999px; pointer-events: none; z-index: 6; }
+.ac-panel { position: absolute; overflow: hidden; cursor: pointer; }
+.ac-panel.empty { cursor: default; }
+/* la video source reste dans la page (sinon les navigateurs cessent de la decoder) mais c'est sa texture qu'on voit */
+.ac-panel video.ac-src { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
 .ac-lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(8, 8, 8, .94); display: none;
                align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 16px; }
 .ac-lightbox.open { display: flex; }
-.ac-lightbox .ac-stage { position: relative; cursor: ew-resize; touch-action: none; max-width: 100%; }
-.ac-lightbox video { display: block; max-width: calc(100vw - 32px); max-height: calc(100vh - 90px); }
-.ac-lightbox .bw video { filter: grayscale(1) contrast(1.12); }
+.ac-lightbox .ac-stage { position: relative; overflow: hidden; max-width: 100%; background: #000; }
+.ac-lightbox .ac-stage.bw { filter: grayscale(1) contrast(1.12); }
 .ac-lightbox p { margin: 0; color: #9a948a; font: 13px/1.4 system-ui, sans-serif; }
-/* retouches appliquees en direct : seconde video du fondu de boucle, teinte (temperature) */
-.ac-panel video.ac-x, .ac-view video.ac-x, .ac-lightbox video.ac-x { transition: none; }
-.ac-tint { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; opacity: 0; z-index: 1; }
-.ac-lightbox .ac-stage { overflow: hidden; }
-.ac-lightbox video.ac-x { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; }
-/* vue supplementaire d'une case (editeur) */
+/* vue supplementaire d'une case (editeur, agrandi) */
 .ac-view { position: relative; overflow: hidden; background: #000; }
-.ac-view video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; opacity: 0; transition: opacity .25s; }
-.ac-view video.ready { opacity: 1; }
+canvas.ac-view-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* mode edition : les cases se designent au survol */
 .ac-page.ac-editing .ac-panel { cursor: pointer; }
 .ac-page.ac-editing .ac-panel::after { content: ""; position: absolute; inset: 0; z-index: 7; pointer-events: none;
-                                       box-shadow: inset 0 0 0 2px rgba(242, 180, 92, 0); transition: box-shadow .15s; }
-.ac-page.ac-editing .ac-panel:hover::after { box-shadow: inset 0 0 0 3px rgba(242, 180, 92, .95); }
-.ac-page.ac-editing .ac-panel.ac-sel::after { box-shadow: inset 0 0 0 3px #f2b45c, inset 0 0 0 6px rgba(0, 0, 0, .35); }
-/* cases en relief : un canevas WebGL par page, sous les cases (qui gardent les gestes) et sous les traits */
-.ac-page > canvas.ac-relief { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.ac-panel.relief { cursor: grab; }
-.ac-panel.relief:active { cursor: grabbing; }
-.ac-view canvas.ac-relief-view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+                                       box-shadow: inset 0 0 0 2px rgba(179, 107, 255, 0); transition: box-shadow .15s; }
+.ac-page.ac-editing .ac-panel:hover::after { box-shadow: inset 0 0 0 3px rgba(179, 107, 255, .95); }
+.ac-page.ac-editing .ac-panel.ac-sel::after { box-shadow: inset 0 0 0 3px #b36bff, inset 0 0 0 6px rgba(0, 0, 0, .35); }

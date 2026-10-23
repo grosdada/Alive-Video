@@ -1,55 +1,37 @@
-/* Alive-Comics : lecteur de pages animees.
+/* Alive-Video : lecteur de pages video.
  *
- * Une page = une image de fond (page.jpg) + des cases. Chaque case porte une video que le lecteur
- * ne « lit » pas : il saute a l'image voulue (video.currentTime). La position est pilotee par :
- *   - le glisser (toute la largeur de la case = toute la video), avec inertie ;
- *   - la lecture automatique (aller-retour, ou vers l'avant si la video boucle) ;
- *   - une boucle au repos optionnelle (seconde video jouee normalement) ;
- * plus un son au survol, en fondu.
+ * Une page = une image de fond (page.jpg : fond, cases, affiches) + un canevas WebGL ou chaque case qui a une video
+ * (ou une image) est calculee, + les traits des cadres (frames.png) par-dessus. Toutes les cases suivent l'horloge de
+ * la page (lecture, pause, boucle a la duree de la page) : l'apercu montre exactement ce que donnera l'export video.
+ * Mode « au survol » (lecture: "hover") : une case ne joue que sous la souris, avec son son.
  *
- * Donnees d'une page (format produit par Alive-Comics et par les scripts H3-Orbital) :
- *   { page: "page.jpg", frames: "frames.png"?, size: [W, H], fps: 24,
- *     panels: [{ id, rect: [x0,y0,x1,y1], poly?: [[x,y]...], video?, frames, center,
- *                loop?, autoplay?, idle?, audio?, audioVol?,
- *                voice?: {src, vol, loop}, foley?: {src, vol, sync}, more?: [{src, vol, loop}], fx? }] }
- * play?: "hover" (defaut) | "always" : les cases qui jouent seules ne bougent qu'au survol (demarrage et arret en
- * douceur), ou tout le temps.
- * sound?: {src, vol} = son global de la page : joue en continu (apres le premier geste, regle des
- * navigateurs), baisse de moitie pendant qu'un son de case joue, fondu en sortie de page.
- * Sons au survol : audio = ambiance en boucle ; voice = voix off (reprise du debut a chaque survol, ou
- * boucle) ; foley = bruitages, cales sur l'image affichee quand la case joue toute seule ; more = sons ajoutes.
- * fx (retouches, appliquees en direct, sans re-encoder la video) :
- *   shake {size % de la case, freq Hz, rot degres, seed} : tremble camera, fonction de la position dans la boucle :
- *         un nombre ENTIER de cycles entre le debut et la fin de boucle (freq arrondie), donc meme tremble au
- *         raccord quels que soient les reglages et les points de boucle ; il se fige avec l'image
- *   grade {sat, bright, contrast, temp -1..1, hue degres} ; frame {zoom, x, y} : cadrage dans la case
- *   range [debut, fin] : points de boucle ; xfade : images de fondu au point de boucle
- *   speed : vitesse ; bounce : aller-retour (true) / boucle (false) ; start : image de depart
- *   ease {head, tail, gain} : H3 freine au debut et a la fin de chaque boucle (pour retomber sur la 1re image) ;
- *         ces images-la sont jouees gain fois plus vite (rampe douce), sans couper : la boucle reste parfaite
+ * Donnees d'une page (produites par app/assemble.py) :
+ *   { page: "page.jpg", frames: "frames.png", size: [W, H], fps, duration, bg: "#rrggbb", sound?: {src, vol},
+ *     panels: [{ id, rect: [x0,y0,x1,y1], poly, view: {zoom, ox, oy},
+ *                media?: {kind: "video", src, rev?, w, h, fps, frames, audio} | {kind: "image", src, w, h},
+ *                fx?: {grade, range, loop, speed, reverse, opacity, volume, filters}, more?: [{src, vol, loop}] }] }
  *
- * API : AlivePlayer.mount(conteneur, donnees, { base: "pages/p1/", gauge: false, stamp }) -> { destroy(), reset() }
- *       (gauge : affiche la tete de lecture au survol ; cachee par defaut ; stamp : anti-cache des fichiers)
- *       AlivePlayer.setBW(bool), AlivePlayer.setSound(bool), AlivePlayer.resetAll()
- *       Mode edition (apercu de l'application) : setEditHook(fn), addView, removeView, setFx, updatePanel,
- *       setLayerVolume, setGlobalVolume, seekTo, setPinned, setPanelSound.
- * Les videos doivent etre « tout-intra » (ffmpeg -g 1) pour un saut instantane.
+ * Chaine d'une case (IDENTIQUE a l'export, app/effects.py et app/videoexport.py) :
+ *   grille de calcul alignee sur les pixels du canevas (X0 = floor(x0 * echelle) ... ceil(x1 * echelle)) ;
+ *   passe 0 : la source placee (cadrage : couverture * zoom, decalage) + couleur de base ; puis un passage par effet
+ *   (flou en deux passes, reduit puis agrandi au-dela de 6 px ; halation : seuil, flou, ajout) ; chaque passe dans une
+ *   texture RGBA 8 bits ; enfin la case est posee dans son polygone, opacite = melange avec la couleur du fond.
+ *   Tailles des effets en millemes de la hauteur de la page : meme rendu a toute resolution.
+ * Temps : image montree = sourceFrame(fx, media, t), meme regle que l'export (debut / fin, vitesse, envers, boucle).
  *
- * Cases en relief (depth: {img, map, preset, amount, focus, duration, trigger, layers?}) : pas de video, une photo et sa
- * carte de profondeur (blanc = proche). Un seul canevas WebGL par page (les navigateurs limitent le nombre de contextes) :
- * chaque case y est dessinee dans son polygone ; la camera bouge de quelques pour cent au survol (ou au clic) et suit
- * le glisser. Au repos, le dessin est identique a l'image de la page. Sans WebGL : l'image fixe, sans erreur.
- * Relief en couches (depth.layers: {bg, fg: [1 ou 2 RGBA, du plus loin au plus proche], ld}) : le fond sans les sujets
- * puis chaque sujet, chacun avec sa propre profondeur (ld : R = fond, G = fg[0], B = fg[1]) : aucun pli, donc aucun
- * bord dedouble ; ce qui etait cache derriere les sujets apparait quand la camera bouge.
+ * API : AlivePlayer.mount(conteneur, donnees, { base, stamp, mode: "all" | "hover", autoplay }) -> instance
+ *       AlivePlayer.play(inst, bool), seek(inst, t), setMode(inst, mode), setBW(bool), setSound(bool), resetAll()
+ *       Mode edition : setEditHook, addView, setFx, setView, updatePanel, setLayerVolume, setGlobalVolume, setPageSound,
+ *       scrub, frameOf, setPinned, setPanelSound, capture (controle lecteur / export).
  */
 (function () {
   "use strict";
-  const DECAY = 3.2;            // inertie : vitesse * exp(-3.2 t)
-  const RESUME_MS = 4000;       // la lecture auto / la boucle au repos reprend 4 s apres le dernier geste
-  const pages = new Set();      // pages montees
-  let bwOn = false, soundOn = true, unlocked = false, lastTick = performance.now(), ticking = false;
-  let editHook = null;          // mode edition : un clic sur une case l'ouvre dans l'editeur
+  const pages = new Set();
+  const renderers = new Set();
+  let bwOn = false, soundOn = true, unlocked = false, ticking = false, lastTick = performance.now();
+  let editHook = null;
+  const LUMA = "vec3(0.2126, 0.7152, 0.0722)";
+  const BLUR_DIRECT = 6, BLUR_MIN = 0.3, GRAIN_GAIN = 0.6, MAXR = 18;
 
   function node(tag, cls, parent) {
     const e = document.createElement(tag);
@@ -57,527 +39,622 @@
     if (parent) parent.appendChild(e);
     return e;
   }
-  const mod = (a, n) => ((a % n) + n) % n;
   const withStamp = (url, stamp) => stamp ? url + (url.includes("?") ? "&" : "?") + "v=" + stamp : url;
+  const hexRgb = (s) => { s = String(s || "#ffffff").replace("#", ""); return [0, 2, 4].map(i => (parseInt(s.slice(i, i + 2), 16) || 0) / 255); };
+
+  // ---------------------------------------------------------------- temps et geometrie (identiques a l'export)
+  function clipRange(fx, n) {
+    let a = 0, b = n - 1;
+    const r = fx.range;
+    if (Array.isArray(r) && r.length === 2) {
+      a = Math.max(0, Math.min(n - 1, r[0] | 0));
+      b = Math.max(a, Math.min(n - 1, r[1] | 0));
+    }
+    return [a, b];
+  }
+  // position dans la video a l'instant t de la case : image montree (idx), position continue dans le fichier lu
+  // (copie, ou copie a l'envers), et si la case est figee sur sa derniere image
+  function sourcePos(fx, m, t) {
+    const n = Math.max(1, m.frames | 0), fps = m.fps || 25, [a, b] = clipRange(fx, n), span = b - a + 1;
+    const pos = t * (fx.speed || 1) * fps + 1e-6;
+    let k = Math.floor(pos), frac = pos - k, hold = false;
+    if (fx.loop !== false) k = ((k % span) + span) % span;
+    else if (k >= span - 1) { k = span - 1; frac = 0; hold = true; } else if (k < 0) { k = 0; frac = 0; }
+    const rev = !!fx.reverse;
+    const idx = rev ? b - k : a + k;
+    const fileFrame = rev ? (n - 1 - b) + k : a + k;          // dans la copie a l'envers, l'image r = n - 1 - idx
+    return { idx, hold, file: (fileFrame + (hold ? 0.5 : frac)) / fps, exact: (fileFrame + 0.5) / fps };
+  }
+  function placement(bb, iw, ih, view) {
+    const v = view || {};
+    const zoom = Math.max(1, v.zoom || 1);
+    const s = Math.max(bb.w / iw, bb.h / ih) * zoom;
+    const dw = iw * s, dh = ih * s;
+    const mx = (dw - bb.w) / (2 * bb.w), my = (dh - bb.h) / (2 * bb.h);
+    const ox = Math.max(-mx, Math.min(mx, v.ox || 0)), oy = Math.max(-my, Math.min(my, v.oy || 0));
+    return { x: bb.x0 + bb.w / 2 - dw / 2 + ox * bb.w, y: bb.y0 + bb.h / 2 - dh / 2 + oy * bb.h, w: dw, h: dh };
+  }
+  function bboxOf(p) { const [x0, y0, x1, y1] = p.rect; return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 }; }
+  function panelSeed(id) {
+    let s = 0;
+    for (const ch of String(id)) s = (s * 31 + ch.charCodeAt(0)) % 1000003;
+    return s % 997;
+  }
+  function grainOffset(k, seed) {
+    const fr = (x) => x - Math.floor(x);
+    return [fr(k * 0.7548776662466927 + seed * 0.3819660112501051) * 256, fr(k * 0.5698402909980532 + seed * 0.6180339887498949) * 256];
+  }
 
   // ---------------------------------------------------------------- une page
   function mount(container, M, opts) {
     opts = opts || {};
     const base = opts.base || "";
     const [PW, PH] = M.size;
-    const fps = M.fps || 24;
     const pageEl = node("div", "ac-page", container);
     pageEl.classList.toggle("bw", bwOn);
-    pageEl.classList.toggle("ac-show-gauge", !!opts.gauge);   // tete de lecture : seulement si demandee
     pageEl.classList.toggle("ac-editing", !!editHook);
     pageEl.style.aspectRatio = PW + " / " + PH;
     pageEl.style.setProperty("--ac-ratio", String(PW / PH));
+    pageEl.style.background = M.bg || "#fff";
     const bg = node("img", "ac-bg", pageEl);
-    bg.src = base + M.page; bg.alt = opts.alt || ""; bg.draggable = false;
-    const inst = { pageEl, panels: [], statics: [], fps, play: opts.play || M.play || "hover", data: M, base,
-                   stamp: opts.stamp || "" };
-
-    for (const p of M.panels) makePanel(inst, p, base, PW, PH);
+    bg.src = withStamp(base + M.page, opts.stamp); bg.alt = opts.alt || ""; bg.draggable = false;
+    const canvas = node("canvas", "ac-canvas", pageEl);
+    const inst = { pageEl, canvas, panels: [], data: M, base, stamp: opts.stamp || "", fps: M.fps || 30,
+                   duration: Math.max(0.2, M.duration || 5), t: 0, playing: opts.autoplay !== false,
+                   mode: opts.mode || "all", bg: hexRgb(M.bg), sounds: [] };
+    for (const p of M.panels) makePanel(inst, p);
     if (M.frames) {
       const fr = node("img", "ac-frames", pageEl);
-      fr.src = base + M.frames; fr.alt = ""; fr.draggable = false;
+      fr.src = withStamp(base + M.frames, opts.stamp); fr.alt = ""; fr.draggable = false;
     }
-    if (M.sound) {
-      const a = new Audio(withStamp(base + M.sound.src, inst.stamp));
-      a.loop = true; a.volume = 0; a.preload = "auto";
-      inst.global = { a, vol: Math.max(0, Math.min(1, M.sound.vol ?? 0.7)), timer: null, mode: "loop" };
-      if (unlocked && soundOn) startGlobal(inst);
-    }
-    inst.reset = () => resetPage(inst);
+    inst.R = makeRenderer(canvas, "page", inst);
+    if (inst.R) {
+      for (const st of inst.panels) if (st.kind) inst.R.add(st);
+      const ro = new ResizeObserver(() => inst.R && inst.R.fit());
+      ro.observe(pageEl);
+      inst.ro = ro;
+    } else canvas.remove();
+    if (M.sound) inst.music = makeSound(withStamp(base + M.sound.src, inst.stamp), M.sound.vol ?? 0.7, true);
     inst.destroy = () => destroyPage(inst);
+    inst.reset = () => seek(inst, 0);
     pages.add(inst);
     startTick();
-    if (unlocked) unlockPage(inst);
     return inst;
   }
 
-  function makePanel(inst, p, base, PW, PH) {
+  function makePanel(inst, p) {
     const el = node("div", "ac-panel", inst.pageEl);
+    const [PW, PH] = inst.data.size;
     const [x0, y0, x1, y1] = p.rect;
     Object.assign(el.style, { left: x0 / PW * 100 + "%", top: y0 / PH * 100 + "%",
                               width: (x1 - x0) / PW * 100 + "%", height: (y1 - y0) / PH * 100 + "%" });
-    if (p.poly) {             // case penchee : la video prend la forme du cadre
+    if (p.poly) {
       const pts = p.poly.map(([x, y]) => `${(x - x0) / (x1 - x0) * 100}% ${(y - y0) / (y1 - y0) * 100}%`);
       el.style.clipPath = `polygon(${pts.join(", ")})`;
     }
-    if (!p.video && p.depth) { makeRelief(inst, p, el, base); return; }
-    if (!p.video) {
-      el.classList.add("static");
-      const so = { p, inst, el, static: true };
-      inst.statics.push(so);
-      el.addEventListener("click", () => { if (editHook) editHook(so); });
-      return;
-    }
-    const gauge = node("div", "ac-gauge", el);
-    const dot = node("i", "", gauge);
-    const wait = node("span", "ac-wait", el);
-    wait.textContent = "chargement…";
-    const st = { p, inst, el, dot, wait, gauge, pos: 0, vel: 0, drag: null, anim: null, views: [], dir: 1, base,
-                 resumeAt: 0, src: withStamp(base + p.video, inst.stamp), over: false, speed: 0, shFree: 0, lastPos: 0,
-                 pinned: false, freeze: false, freeShake: false, pinSound: false };
-    configure(st);
-    st.pos = st.lastPos = st.home;
-    addView(st, el, gauge);
-    if (p.idle) {             // boucle au repos, camera fixe, par-dessus
-      const iv = document.createElement("video");
-      iv.className = "idle on"; iv.muted = true; iv.loop = true; iv.playsInline = true; iv.autoplay = true;
-      iv.preload = "auto"; iv.src = base + p.idle;
-      iv.addEventListener("playing", () => iv.classList.add("ready"));
-      el.insertBefore(iv, gauge);
-      st.idle = iv; st.idleOn = true;
-    }
-    buildLayers(st);
-    // sons au survol, en fondu ; au doigt : la derniere case touchee
-    el.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") soundOnPanel(st, true); });
-    el.addEventListener("pointerleave", () => { if (!st.pinSound) soundOnPanel(st, false); });
-    el.addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && st.layers.length) toggleTouchAudio(st); });
-    // animation au survol (souris) ; au doigt : la derniere case touchee joue
-    el.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") st.over = true; });
-    el.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") st.over = false; });
+    const st = { p, inst, el, kind: p.media ? p.media.kind : null, serial: 0, fxv: 1, clock: 0, over: false,
+                 pinned: false, pinSound: false, scrubFrame: null, sounds: [], views: [] };
+    if (!st.kind) el.classList.add("empty");
+    loadMedia(st);
+    buildSounds(st);
+    el.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") setOver(st, true); });
+    el.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") setOver(st, false); });
     el.addEventListener("pointerdown", (e) => {
-      if (e.pointerType !== "touch") return;
-      for (const i2 of pages) for (const o of i2.panels) o.over = false;
-      st.over = true;
+      if (e.pointerType !== "touch" || inst.mode !== "hover") return;
+      for (const i2 of pages) for (const o of i2.panels) if (o !== st) setOver(o, false);
+      setOver(st, !st.over);
     });
-    bindDrag(el, () => st);
-    el.addEventListener("dblclick", () => { if (!editHook) openLightbox(st); });
+    el.addEventListener("click", () => { if (editHook) editHook(st); });
+    el.addEventListener("dblclick", () => { if (!editHook && st.kind) openLightbox(st); });
     inst.panels.push(st);
   }
 
-  // reglages derives des donnees et des retouches (fx) : plage d'images, boucle, vitesse, image de depart
-  function configure(st) {
-    const p = st.p, fx = p.fx || {}, n = Math.max(2, p.frames || 2);
-    st.loopMode = typeof fx.bounce === "boolean" ? !fx.bounce : !!p.loop;
-    let a = 0, b = n - 1;
-    if (Array.isArray(fx.range)) {
-      a = Math.max(0, Math.min(n - 2, fx.range[0] | 0));
-      b = Math.max(a + 1, Math.min(n - 1, fx.range[1] | 0));
-    }
-    st.a = a; st.b = b;
-    st.xf = st.loopMode ? Math.max(0, Math.min(fx.xfade | 0, Math.floor((b - a) / 2) - 1)) : 0;
-    st.lo = a + st.xf;
-    st.period = Math.max(1, b - st.lo);
-    st.rate = fx.speed > 0 ? fx.speed : 1;
-    const ez = fx.ease;
-    st.ease = ez && ez.gain > 1 && (ez.head > 0 || ez.tail > 0) ? { head: ez.head | 0, tail: ez.tail | 0, gain: +ez.gain } : null;
-    const h = fx.start != null ? fx.start : (p.center || 0);
-    st.home = st.loopMode ? (h >= st.lo && h < b ? h : st.lo) : Math.max(a, Math.min(b, h));
-    if (!st.loopMode) st.pos = Math.max(a, Math.min(b, st.pos));
-    // ralentis acceleres : temps joue cumule image par image (le tremble suit le temps, pas les images)
-    st.tmap = null;
-    if (st.ease) {
-      const s0 = st.loopMode ? st.lo : st.a, n0 = st.loopMode ? st.period : Math.max(1, st.b - st.a);
-      const t = new Float32Array(n0 + 1);
-      for (let i = 0; i < n0; i++) t[i + 1] = t[i] + 1 / easeK(st, s0 + i + 0.5);
-      st.tmap = t;
-    }
-    // tremble : phases tirees de la graine ; marge de zoom pour ne jamais montrer les bords
-    const r = (p.rect[2] - p.rect[0]) / Math.max(1, p.rect[3] - p.rect[1]);
-    st.aspect = Math.max(r, 1 / r);
-    let s = ((fx.shake && fx.shake.seed) | 0) + 0x9e3779b9;
-    const rnd = () => {        // mulberry32
-      s |= 0; s = (s + 0x6D2B79F5) | 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    st.phases = Array.from({ length: 8 }, () => rnd() * Math.PI * 2);
-    const g = fx.grade || {};
-    const f = [];
-    if (g.sat != null && g.sat !== 1) f.push(`saturate(${g.sat})`);
-    if (g.bright != null && g.bright !== 1) f.push(`brightness(${g.bright})`);
-    if (g.contrast != null && g.contrast !== 1) f.push(`contrast(${g.contrast})`);
-    if (g.hue) f.push(`hue-rotate(${g.hue}deg)`);
-    st.filter = f.join(" ");
-    const t = +g.temp || 0;
-    st.tint = t ? [t > 0 ? "rgb(255,138,40)" : "rgb(40,120,255)", Math.min(1, Math.abs(t) * 0.55)] : ["transparent", 0];
+  function setOver(st, on) {
+    st.over = on;
+    for (const S of st.sounds) S.want = null;
   }
 
-  // vitesse de lecture a la position f : x gain dans les ralentis du debut et de la fin (rampe douce)
-  function easeK(st, f) {
-    const e = st.ease;
-    if (!e) return 1;
-    const s0 = st.loopMode ? st.lo : st.a, sm = (x) => x * x * (3 - 2 * x);
-    let k = 1;
-    if (e.head && f - s0 < e.head) k = Math.max(k, e.gain + (1 - e.gain) * sm(Math.max(0, (f - s0) / e.head)));
-    if (e.tail && st.b - f < e.tail) k = Math.max(k, e.gain + (1 - e.gain) * sm(Math.max(0, (st.b - f) / e.tail)));
-    return k;
-  }
-
-  // boucle du tremble : sa duree (secondes jouees) et la phase 0..1 de l'image affichee
-  function shakeLoop(st) {
-    const n = st.loopMode ? st.period : Math.max(1, st.b - st.a);
-    const x = frac(st) - (st.loopMode ? st.lo : st.a);
-    if (st.tmap) {
-      const t = st.tmap, i = Math.max(0, Math.min(n - 1, Math.floor(x))), w = Math.max(0, Math.min(1, x - i));
-      return { sec: t[n] / st.inst.fps, u: (t[i] + (t[i + 1] - t[i]) * w) / t[n] + st.shFree };
+  // ---------------------------------------------------------------- medias (video cachee : sa texture est dessinee)
+  function loadMedia(st) {
+    const m = st.p.media;
+    if (st.v) { st.v.pause(); st.v.removeAttribute("src"); st.v.load(); st.v.remove(); st.v = null; }
+    st.img = null; st.ready = false;
+    if (!m) { st.kind = null; return; }
+    st.kind = m.kind;
+    const fx = st.p.fx || {};
+    if (m.kind === "image") {
+      const im = new Image();
+      im.onload = () => { st.img = im; st.ready = true; st.serial++; };
+      im.src = withStamp(st.inst.base + m.src, st.inst.stamp);
+      return;
     }
-    return { sec: n / st.inst.fps, u: x / n + st.shFree };
-  }
-  // nombres de cycles par boucle : entiers (raccord parfait), croissants, au plus pres de la frequence demandee
-  function shakeCycles(sh, sec) {
-    const f = sh.freq || 0.2;
-    const k = (ratios) => {
-      const out = [];
-      for (const r of ratios) out.push(Math.max(out.length ? out[out.length - 1] + 1 : 1, Math.round(r * f * sec)));
-      return out;
-    };
-    return { x: k([1, 2.13, 3.71]), y: k([1.07, 1.93, 3.29]), r: k([0.83, 1.71]) };
-  }
-
-  function transformOf(st) {
-    const fx = st.p.fx || {}, sh = fx.shake, fr = fx.frame;
-    let s = 1, dx = 0, dy = 0, rot = 0;
-    if (sh && (sh.size > 0 || sh.rot > 0)) {
-      const L = shakeLoop(st), K = shakeCycles(sh, L.sec), w = 2 * Math.PI * L.u, ph = st.phases, a = sh.size || 0;
-      dx = a * (0.62 * Math.sin(K.x[0] * w + ph[0]) + 0.28 * Math.sin(K.x[1] * w + ph[1]) + 0.10 * Math.sin(K.x[2] * w + ph[2]));
-      dy = a * (0.62 * Math.sin(K.y[0] * w + ph[3]) + 0.28 * Math.sin(K.y[1] * w + ph[4]) + 0.10 * Math.sin(K.y[2] * w + ph[5]));
-      rot = (sh.rot || 0) * (0.7 * Math.sin(K.r[0] * w + ph[6]) + 0.3 * Math.sin(K.r[1] * w + ph[7]));
-      const th = (sh.rot || 0) * Math.PI / 180;
-      s = (Math.cos(th) + st.aspect * Math.sin(th)) * (1 + 2 * a / 100);
-    }
-    let z = 1, tx = 0, ty = 0;
-    if (fr && fr.zoom > 1) {
-      z = fr.zoom;
-      tx = -(fr.x || 0) * (z - 1) / 2 * 100;
-      ty = -(fr.y || 0) * (z - 1) / 2 * 100;
-    }
-    if (s === 1 && z === 1) return "";
-    return `translate(${(tx + dx).toFixed(3)}%, ${(ty + dy).toFixed(3)}%) rotate(${rot.toFixed(4)}deg) scale(${(z * s).toFixed(4)})`;
-  }
-
-  function applyFx(st, force) {
-    const T = transformOf(st);
-    if (force || T !== st._T) {
-      st._T = T;
-      for (const vw of st.views) for (const t of [vw.main, vw.xt]) if (t) t.v.style.transform = T;
-    }
-    if (force || st.filter !== st._F) {
-      st._F = st.filter;
-      for (const vw of st.views) for (const t of [vw.main, vw.xt]) if (t) t.v.style.filter = st.filter;
-    }
-    const tint = st.tint.join("|");
-    if (force || tint !== st._tint) {
-      st._tint = tint;
-      for (const vw of st.views) { vw.tint.style.background = st.tint[0]; vw.tint.style.opacity = st.tint[1]; }
-    }
-  }
-
-  // ---------------------------------------------------------------- vues d'une case (case, agrandissement, editeur)
-  function makeTrack(st, v, vw, main) {
-    const t = { v, shown: -1, want: -1, busy: false, target: 0 };
-    v.muted = true; v.playsInline = true; v.preload = "auto"; v.setAttribute("playsinline", ""); v.src = st.src;
-    v.addEventListener("seeked", () => {
-      t.busy = false; t.shown = t.want;
-      if (main) v.classList.add("ready");
-      if (main && st.wait && vw === st.views[0]) { st.wait.remove(); st.wait = null; }
-      seek(st, t, t.target);       // rattrape la position si elle a bouge pendant le saut
-    });
-    v.addEventListener("loadedmetadata", () => { t.shown = -1; t.busy = false; seek(st, t, t.target); });
-    return t;
-  }
-
-  function addView(st, host, before) {
-    const vw = { host };
+    const rev = !!(fx.reverse && m.rev);
     const v = document.createElement("video");
-    host.insertBefore(v, before || null);
-    vw.main = makeTrack(st, v, vw, true);
-    vw.main.target = idxOf(st);
-    vw.tint = document.createElement("div");
-    vw.tint.className = "ac-tint";
-    host.insertBefore(vw.tint, before || null);
-    st.views.push(vw);
-    v.style.transform = st._T || ""; v.style.filter = st.filter || "";
-    vw.tint.style.background = st.tint[0]; vw.tint.style.opacity = st.tint[1];
-    if (st.xf) ensureX(st, vw);
-    return vw;
+    v.className = "ac-src";
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.setAttribute("playsinline", "");
+    v.src = withStamp(st.inst.base + (rev ? m.rev : m.src), st.inst.stamp);
+    st.el.appendChild(v);
+    st.v = v; st.rev = rev;
+    const bump = () => { st.serial++; };
+    v.addEventListener("loadeddata", () => { st.ready = true; bump(); });
+    v.addEventListener("seeked", bump);
+    if ("requestVideoFrameCallback" in v) {
+      const cb = () => { if (st.v !== v) return; bump(); v.requestVideoFrameCallback(cb); };
+      v.requestVideoFrameCallback(cb);
+      st.rvfc = true;
+    }
   }
 
-  function ensureX(st, vw) {      // seconde video pour le fondu au point de boucle
-    if (vw.xt) return vw.xt;
-    const x = document.createElement("video");
-    x.className = "ac-x";
-    x.style.opacity = 0;
-    vw.host.insertBefore(x, vw.tint);
-    vw.xt = makeTrack(st, x, vw, false);
-    x.style.transform = st._T || ""; x.style.filter = st.filter || "";
-    return vw.xt;
+  function clockOf(st) { return st.inst.mode === "hover" ? st.clock : st.inst.t; }
+  function active(st) {
+    const inst = st.inst;
+    if (!inst.playing) return false;
+    return inst.mode !== "hover" || st.over || st.pinned || lb.st === st;
   }
 
-  function removeView(st, vw) {
-    st.views = st.views.filter(o => o !== vw);
-    for (const t of [vw.main, vw.xt]) if (t) { t.v.removeAttribute("src"); t.v.load(); t.v.remove(); }
-    vw.tint.remove();
-  }
-
-  function seek(st, t, idx) {
-    t.target = idx;
-    if (t.busy || idx === t.shown || t.v.readyState < 1) return;
-    t.want = idx; t.busy = true;
-    t.v.currentTime = (idx + 0.5) / st.inst.fps;
-  }
-
-  // ---------------------------------------------------------------- gestes
-  function bindDrag(target, getSt) {
-    target.addEventListener("pointerdown", (e) => {
-      const st = getSt();
-      if (e.button !== 0 || !st) return;
-      try { target.setPointerCapture(e.pointerId); } catch (_) { /* pointeur deja relache */ }
-      st.anim = null; st.vel = 0;
-      if (st.idle && st.idleOn) { st.idleOn = false; st.idle.classList.remove("on"); st.idle.pause(); }
-      st.drag = { x: e.clientX, y: e.clientY, t: performance.now(), pos: st.pos, w: target.getBoundingClientRect().width,
-                  hist: [[performance.now(), st.pos]], target };
-      st.el.classList.add("active");
-    });
-    target.addEventListener("pointermove", (e) => {
-      const st = getSt();
-      if (!st || !st.drag) return;
-      const d = st.drag;
-      st.pos = clampPos(d.pos + (e.clientX - d.x) / d.w * (st.b - st.a), st);
-      d.hist.push([performance.now(), st.pos]);
-      if (d.hist.length > 6) d.hist.shift();
-      render(st);
-    });
-    const end = (e) => {
-      const st = getSt();
-      if (!st || !st.drag) return;
-      const d = st.drag;
-      const h = d.hist, a = h[0], b = h[h.length - 1];
-      const dt = (b[0] - a[0]) / 1000;
-      const max = (st.b - st.a) / 1.1;
-      st.vel = dt > 0.01 ? Math.max(-max, Math.min(max, (b[1] - a[1]) / dt)) : 0;
-      st.drag = null;
-      st.resumeAt = performance.now() + RESUME_MS;
-      st.el.classList.remove("active");
-      // mode edition : un simple clic (pas un glisser) ouvre la case dans l'editeur
-      if (editHook && e && e.type === "pointerup" && d.target === st.el && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6
-          && performance.now() - d.t < 600) {
-        st.vel = 0; st.pos = d.pos; st.resumeAt = 0;
-        editHook(st);
+  // la video suit l'horloge : lecture native (son compris) recalee si elle derive ; en pause, l'image exacte
+  function syncVideo(st) {
+    const v = st.v, m = st.p.media, fx = st.p.fx || {};
+    if (!v || !st.ready) return;
+    const wantRev = !!(fx.reverse && m.rev);
+    if (wantRev !== st.rev) { loadMedia(st); return; }
+    const P = sourcePos(fx, m, clockOf(st));
+    st.idx = P.idx;
+    const playing = active(st) && !P.hold && st.scrubFrame == null;
+    const fps = m.fps || 25;
+    if (!playing) {
+      if (!v.paused) v.pause();
+      let target = P.exact;
+      if (st.scrubFrame != null) {
+        const n = m.frames | 0, f = Math.max(0, Math.min(n - 1, st.scrubFrame));
+        target = ((st.rev ? n - 1 - f : f) + 0.5) / fps;
+        st.idx = f;
       }
-    };
-    target.addEventListener("pointerup", end);
-    target.addEventListener("pointercancel", end);
+      if (Math.abs(v.currentTime - target) > 0.45 / fps && !v.seeking) v.currentTime = target;
+    } else {
+      const rate = fx.speed || 1;
+      if (v.playbackRate !== rate) v.playbackRate = rate;
+      if (v.paused || v.ended) v.play().catch(() => {});
+      if (Math.abs(v.currentTime - P.file) > 0.25 && !v.seeking) v.currentTime = P.file;
+      if (!st.rvfc) st.serial++;
+    }
+    const audible = playing && unlocked && soundOn && m.audio && (st.inst.mode !== "hover" || st.over || st.pinSound);
+    const vol = Math.max(0, Math.min(1, fx.volume ?? 1));
+    if (v.muted !== !audible) v.muted = !audible;
+    if (Math.abs(v.volume - vol) > 1e-3) v.volume = vol;
   }
 
-  function clampPos(pos, st) { return st.loopMode ? pos : Math.max(st.a, Math.min(st.b, pos)); }
-  function frac(st) { return st.loopMode ? st.lo + mod(st.pos - st.lo, st.period) : Math.max(st.a, Math.min(st.b, st.pos)); }
-  function idxOf(st) {
-    let i = Math.round(frac(st));
-    if (st.loopMode && i >= st.b) i = st.lo;
-    return i;
+  // ---------------------------------------------------------------- sons ajoutes et musique de la page
+  function makeSound(src, vol, loop) {
+    const a = new Audio(src);
+    a.preload = "auto"; a.loop = false;
+    return { a, vol: Math.max(0, Math.min(1, vol)), loop, want: null };
+  }
+  function buildSounds(st) {
+    for (const S of st.sounds) { S.a.pause(); S.a.src = ""; }
+    st.sounds = (st.p.more || []).map((x, i) => Object.assign(makeSound(withStamp(st.inst.base + x.src, st.inst.stamp), x.vol ?? 0.8,
+                                                                         x.loop !== false), { key: "more" + i }));
+  }
+  // un son suit une horloge : en boucle (t modulo sa duree) ou une fois depuis 0
+  function syncSound(S, t, on) {
+    const a = S.a, d = a.duration;
+    if (!on || !d || !isFinite(d)) { if (!a.paused) a.pause(); return; }
+    let want = t;
+    if (S.loop) want = t % d;
+    else if (t >= d) { if (!a.paused) a.pause(); return; }
+    if (a.paused) { a.currentTime = want; a.play().catch(() => {}); }
+    else if (Math.abs(a.currentTime - want) > 0.3) a.currentTime = want;
+    a.volume = S.vol;
   }
 
-  // ---------------------------------------------------------------- animation
+  // ---------------------------------------------------------------- horloge
   function startTick() {
     if (ticking) return;
     ticking = true; lastTick = performance.now();
     requestAnimationFrame(tick);
   }
-
   function tick(now) {
-    const dt = Math.min(0.05, (now - lastTick) / 1000); lastTick = now;
-    for (const inst of pages) for (const st of inst.panels) step(st, now, dt);
-    for (const R of renderers) if (R.dirty) R.draw();
-    if (pages.size) requestAnimationFrame(tick); else ticking = false;
+    const dt = Math.min(0.5, (now - lastTick) / 1000); lastTick = now;
+    for (const inst of pages) stepPage(inst, dt);
+    for (const R of renderers) R.draw();
+    if (pages.size || renderers.size) requestAnimationFrame(tick); else ticking = false;
   }
-
-  function step(st, now, dt) {
-    if (st.relief) { stepRelief(st, now, dt); return; }
-    const fps = st.inst.fps;
-    // editeur : le tremble vit meme sur une image fixe (il parcourt sa boucle en temps reel)
-    if (st.freeShake) st.shFree += dt / Math.max(0.2, shakeLoop(st).sec); else st.shFree = 0;
-    if (st.anim) {
-      const t = Math.min(1, (now - st.anim.t0) / 600), k = 1 - Math.pow(1 - t, 3);
-      st.pos = st.anim.from + (st.home - st.anim.from) * k;
-      if (t >= 1) st.anim = null;
-    } else if (!st.drag && st.vel) {
-      st.pos = clampPos(st.pos + st.vel * dt, st);
-      st.vel *= Math.exp(-DECAY * dt);
-      if (Math.abs(st.vel) < 0.5 || (!st.loopMode && (st.pos <= st.a || st.pos >= st.b))) st.vel = 0;
-    } else if (st.idle && !st.idleOn && !st.drag && now > st.resumeAt) {
-      if (Math.round(st.pos) !== st.home) st.anim = { from: st.pos, t0: now };
-      else { st.idleOn = true; st.idle.classList.add("on"); st.idle.play().catch(() => {}); }
-    } else if (st.p.autoplay && !st.drag && now > st.resumeAt) {
-      // vitesse qui monte et descend en douceur : la case s'anime au survol et se fige quand on la quitte
-      const active = !st.freeze && (st.inst.play === "always" || st.over || lb.st === st || st.pinned);
-      st.speed += ((active ? 1 : 0) - st.speed) * Math.min(1, dt * (active ? 3 : 2.2));
-      if ((st.speed < 0.004 && !active) || st.freeze) st.speed = 0;     // editeur : « figer l'image » = arret net
-      const stp = fps * dt * st.speed * st.rate * easeK(st, frac(st));
-      if (st.loopMode) st.pos += stp;
-      else {
-        st.pos += st.dir * stp;
-        if (st.pos >= st.b) { st.pos = st.b; st.dir = -1; }
-        if (st.pos <= st.a) { st.pos = st.a; st.dir = 1; }
-      }
-    }
-    render(st);
-  }
-
-  function render(st) {
-    const f = frac(st), idx = idxOf(st);
-    st.lastPos = st.pos;
-    applyFx(st);
-    if (st.hover) for (const L of st.layers || []) if (L.mode === "sync") syncLayer(st, L, false);
-    st.dot.style.left = (idx - st.a) / Math.max(1, st.b - st.a) * 100 + "%";
-    let xa = 0, xi = -1;
-    if (st.xf) {
-      const z = f - (st.b - st.xf);
-      if (z > 0) { xa = Math.min(1, z / st.xf); xi = Math.min(st.lo, st.a + Math.round(z)); }
-    }
-    for (const vw of st.views) {
-      seek(st, vw.main, idx);
-      if (xi >= 0) ensureX(st, vw);
-      if (vw.xt) {
-        if (xi >= 0) seek(st, vw.xt, xi);
-        const o = xi >= 0 && vw.xt.shown >= 0 ? xa.toFixed(3) : "0";
-        if (vw.xt.v.style.opacity !== o) vw.xt.v.style.opacity = o;
-      }
-    }
-  }
-
-  function resetPage(inst) {
-    const t0 = performance.now();
+  function stepPage(inst, dt) {
+    if (inst.playing) inst.t = (inst.t + dt) % inst.duration;
     for (const st of inst.panels) {
-      if (st.relief) { st.rv.once = -1; continue; }
-      st.vel = 0;
-      let from = st.pos;
-      if (st.loopMode) {                  // par le chemin le plus court
-        from = st.lo + mod(from - st.lo, st.period);
-        if (from - st.home > st.period / 2) from -= st.period;
-        if (st.home - from > st.period / 2) from += st.period;
-      }
-      st.anim = { from, t0 };
+      if (inst.mode === "hover" && active(st)) st.clock = (st.clock + dt) % inst.duration;
+      if (st.kind === "video") syncVideo(st);
+      const on = unlocked && soundOn && active(st) && (inst.mode !== "hover" || st.over || st.pinSound);
+      for (const S of st.sounds) syncSound(S, clockOf(st), on);
     }
+    if (inst.music) syncSound(inst.music, inst.t, unlocked && soundOn && inst.playing);
+  }
+  function play(inst, on) { inst.playing = !!on; }
+  function seek(inst, t) {
+    inst.t = ((t % inst.duration) + inst.duration) % inst.duration;
+    for (const st of inst.panels) { st.clock = inst.t; st.scrubFrame = null; }
+  }
+  function setMode(inst, mode) {
+    inst.mode = mode === "hover" ? "hover" : "all";
+    for (const st of inst.panels) st.clock = inst.t;
   }
 
   function destroyPage(inst) {
     if (lb.st && lb.st.inst === inst) closeLightbox();
-    if (inst.rr) inst.rr.destroy();
+    if (inst.ro) inst.ro.disconnect();
+    if (inst.R) inst.R.destroy();
     for (const st of inst.panels) {
-      for (const rv of (st.rviews || []).slice()) rv.remove();
-      for (const vw of st.views.slice()) removeView(st, vw);
-      if (st.idle) { st.idle.pause(); st.idle.removeAttribute("src"); st.idle.load(); }
-      dropLayers(st);
+      for (const vw of st.views.slice()) vw.remove();
+      if (st.v) { st.v.pause(); st.v.removeAttribute("src"); st.v.load(); }
+      for (const S of st.sounds) { S.a.pause(); S.a.src = ""; }
     }
-    if (inst.global) {                         // fondu de sortie, sans retenir la page
-      const g = inst.global;
-      fade(g, 0);
-      setTimeout(() => { g.a.pause(); g.a.src = ""; }, 900);
-    }
+    if (inst.music) { inst.music.a.pause(); inst.music.a.src = ""; }
     inst.pageEl.remove();
     pages.delete(inst);
   }
 
-  // ---------------------------------------------------------------- son
-  function buildLayers(st) {
-    st.layers = [];
-    const p = st.p, stamp = st.inst.stamp;
-    const layer = (key, src, vol, mode) => {
-      const a = new Audio(withStamp(st.base + src, stamp));
-      a.loop = mode !== "once"; a.volume = 0; a.preload = "auto";
-      st.layers.push({ key, a, vol: Math.max(0, Math.min(1, vol ?? 1)), mode, timer: null });
-    };
-    if (p.audio) layer("audio", p.audio, p.audioVol ?? 1, "loop");
-    if (p.voice) layer("voice", p.voice.src, p.voice.vol, p.voice.loop ? "loop" : "once");
-    if (p.foley) layer("foley", p.foley.src, p.foley.vol, p.foley.sync ? "sync" : "loop");
-    (p.more || []).forEach((x, i) => layer("more" + i, x.src, x.vol, x.loop ? "loop" : "once"));
-  }
-
-  function dropLayers(st) {
-    for (const L of st.layers || []) { clearInterval(L.timer); L.a.pause(); L.a.src = ""; }
-    st.layers = [];
-  }
-
-  function fade(L, target) {
-    clearInterval(L.timer);
-    L.timer = setInterval(() => {
-      const v = L.a.volume + (target > L.a.volume ? 0.06 : -0.06);
-      L.a.volume = Math.max(0, Math.min(1, v));
-      if (Math.abs(L.a.volume - target) < 0.06) {
-        L.a.volume = target; clearInterval(L.timer);
-        if (target === 0) L.a.pause();
-      }
-    }, 30);
-  }
-
-  function startGlobal(inst) {
-    const g = inst.global;
-    if (!g || !soundOn) return;
-    g.a.play().catch(() => {});
-    fade(g, duckedVolume(g));
-  }
-
-  // le son global se fait discret pendant qu'une case joue ses sons
-  function duckedVolume(g) {
-    let busy = false;
-    for (const inst of pages) for (const st of inst.panels) if (st.hover && (st.layers || []).length) busy = true;
-    return busy ? g.vol * 0.45 : g.vol;
-  }
-
-  function reduckAll() {
-    for (const inst of pages) if (inst.global && !inst.global.a.paused) fade(inst.global, duckedVolume(inst.global));
-  }
-
-  // allume / eteint les sons d'une case
-  function soundOnPanel(st, on) {
-    st.hover = on;
-    setTimeout(reduckAll, 0);
-    for (const L of st.layers || []) {
-      if (on && soundOn) {
-        if (L.mode === "once" && (L.a.paused || L.a.ended)) L.a.currentTime = 0;
-        if (L.mode === "sync") syncLayer(st, L, true);
-        L.a.play().catch(() => {});
-        fade(L, L.vol);
-      } else {
-        fade(L, 0);
-      }
-    }
-  }
-
-  // bruitages : suivent l'image affichee (lecture auto vers l'avant) ; coupes pendant un retour en arriere
-  function syncLayer(st, L, force) {
-    const d = L.a.duration;
-    if (!d || !isFinite(d)) return;
-    const back = st.p.autoplay && !st.loopMode && st.dir < 0;
-    if (back || st.drag) { if (!L.a.paused) L.a.pause(); return; }
-    const t = (idxOf(st) / st.inst.fps) % d;
-    if (L.a.paused && st.hover && soundOn) L.a.play().catch(() => {});
-    if (force || Math.abs(L.a.currentTime - t) > 0.25) L.a.currentTime = t;
-  }
-
-  // tactile : pas de survol, le son suit la derniere case touchee
-  function toggleTouchAudio(st) {
-    for (const inst of pages) for (const o of inst.panels) if (o !== st && o.hover) soundOnPanel(o, false);
-    soundOnPanel(st, true);
-  }
-
-  // iOS / Android : les videos ne chargent qu'apres un premier geste
-  function unlockPage(inst) {
-    for (const st of inst.panels) for (const vw of st.views) {
-      const v = vw.main.v;
-      if (v.readyState < 1) {
-        const pr = v.play();
-        if (pr) pr.then(() => v.pause()).catch(() => {});
-      }
-    }
-  }
+  // iOS / Android et regle des navigateurs : le son n'est permis qu'apres un premier geste
   document.addEventListener("pointerdown", () => {
     if (unlocked) return;
     unlocked = true;
-    for (const inst of pages) {
-      unlockPage(inst); startGlobal(inst);
-      for (const st of inst.panels) if (st.hover) setTimeout(() => soundOnPanel(st, true), 0);   // case deja survolee
-    }
     document.dispatchEvent(new Event("alive-unlocked"));
   }, { capture: true });
 
-  // ---------------------------------------------------------------- agrandissement
+  // ---------------------------------------------------------------- WebGL : programmes
+  const VS_QUAD = "attribute vec2 aP; varying vec2 v; void main(){ v = aP * 0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }";
+  const VS_POLY = "attribute vec2 aP; attribute vec2 aT; varying vec2 v; void main(){ v = aT; gl_Position = vec4(aP, 0.0, 1.0); }";
+  const HEAD = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    varying vec2 v; uniform sampler2D uT;
+    float luma(vec3 c){ return dot(c, ${LUMA}); }
+    // couleur : gain, contraste autour du gris, saturation, temperature, vert <-> magenta, teinte (= app/effects.py)
+    vec3 grade(vec3 c, vec4 a, vec2 b){
+      c *= a.x;
+      c = (c - 0.5) * a.y + 0.5;
+      float l = luma(c);
+      c = mix(vec3(l), c, a.z);
+      c += vec3(0.07, 0.0, -0.07) * a.w + vec3(0.05, -0.06, 0.05) * b.x;
+      if (b.y != 0.0) {
+        float r = radians(b.y), co = cos(r), si = sin(r);
+        vec3 k = vec3(0.57735026919);
+        c = c * co + cross(k, c) * si + k * dot(k, c) * (1.0 - co);
+      }
+      return clamp(c, 0.0, 1.0);
+    }
+  `;
+  const FS = {
+    // passe 0 : source placee dans la case + couleur de base
+    src: `uniform vec2 uS, uO; uniform vec4 uA; uniform vec2 uB;
+      void main(){ gl_FragColor = vec4(grade(texture2D(uT, v * uS + uO).rgb, uA, uB), 1.0); }`,
+    copy: `void main(){ gl_FragColor = vec4(texture2D(uT, v).rgb, 1.0); }`,
+    colour: `uniform vec4 uA; uniform vec2 uB;
+      void main(){ gl_FragColor = vec4(grade(texture2D(uT, v).rgb, uA, uB), 1.0); }`,
+    mono: `uniform float uMode, uAmt; uniform vec3 uCol;
+      void main(){
+        vec3 c = texture2D(uT, v).rgb; float l = luma(c); vec3 m;
+        if (uMode < 0.5) m = vec3(l);
+        else if (uMode < 1.5) m = clamp(vec3(dot(c, vec3(0.393, 0.769, 0.189)), dot(c, vec3(0.349, 0.686, 0.168)),
+                                             dot(c, vec3(0.272, 0.534, 0.131))), 0.0, 1.0);
+        else m = l < 0.5 ? uCol * (2.0 * l) : uCol + (1.0 - uCol) * (2.0 * l - 1.0);
+        gl_FragColor = vec4(c + (m - c) * uAmt, 1.0);
+      }`,
+    vignette: `uniform float uAmt, uSize, uSoft;
+      void main(){
+        float d = length((v - 0.5) * 2.0) / 1.41421356237;
+        float x = clamp((d - uSize) / uSoft, 0.0, 1.0);
+        gl_FragColor = vec4(texture2D(uT, v).rgb * (1.0 - uAmt * x * x * (3.0 - 2.0 * x)), 1.0);
+      }`,
+    grain: `uniform sampler2D uG; uniform vec2 uSc, uOff; uniform float uAmt;
+      void main(){
+        vec2 q = v * uSc + uOff;
+        float g = texture2D(uG, q / 256.0).r - 0.5;
+        gl_FragColor = vec4(texture2D(uT, v).rgb + g * uAmt, 1.0);
+      }`,
+    blur: `uniform vec2 uD; uniform float uR, uS2;
+      void main(){
+        vec3 s = vec3(0.0); float ws = 0.0;
+        for (int i = -${MAXR}; i <= ${MAXR}; i++) {
+          float fi = float(i);
+          if (abs(fi) > uR) continue;
+          float w = exp(-fi * fi / uS2);
+          s += w * texture2D(uT, v + uD * fi).rgb; ws += w;
+        }
+        gl_FragColor = vec4(s / ws, 1.0);
+      }`,
+    thresh: `uniform float uThr;
+      void main(){ float h = clamp((luma(texture2D(uT, v).rgb) - uThr) / (1.0 - uThr), 0.0, 1.0); gl_FragColor = vec4(vec3(h), 1.0); }`,
+    halo: `uniform sampler2D uG; uniform vec3 uCol; uniform float uAmt;
+      void main(){ gl_FragColor = vec4(texture2D(uT, v).rgb + uCol * texture2D(uG, v).r * uAmt, 1.0); }`,
+    chroma: `uniform float uK;
+      void main(){
+        vec2 d = v - 0.5;
+        gl_FragColor = vec4(texture2D(uT, 0.5 + d * (1.0 + uK)).r, texture2D(uT, v).g, texture2D(uT, 0.5 + d * (1.0 - uK)).b, 1.0);
+      }`,
+    // pose de la case dans la page : opacite = melange avec la couleur du fond
+    final: `uniform float uOp; uniform vec3 uBg;
+      void main(){ gl_FragColor = vec4(mix(uBg, texture2D(uT, v).rgb, uOp), 1.0); }`,
+  };
+
+  let grainImg = null;
+  function grainImage() {
+    if (!grainImg) {
+      grainImg = new Image();
+      grainImg.src = (window.ALIVE_GRAIN_URL || "grain.png");
+    }
+    return grainImg;
+  }
+
+  function makeRenderer(canvas, kind, owner) {
+    const attrs = { antialias: kind === "page", premultipliedAlpha: false, alpha: true, preserveDrawingBuffer: false };
+    let gl = canvas.getContext("webgl2", attrs), gl2 = !!gl;
+    if (!gl) gl = canvas.getContext("webgl", attrs) || canvas.getContext("experimental-webgl", attrs);
+    if (!gl) return null;
+    const compile = (vs, fs) => {
+      const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
+                                  if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(o)); return o; };
+      const p = gl.createProgram();
+      gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, HEAD + fs));
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.warn(gl.getProgramInfoLog(p)); return null; }
+      const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+      for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name] = gl.getUniformLocation(p, a.name); }
+      return { p, u, aP: gl.getAttribLocation(p, "aP"), aT: gl.getAttribLocation(p, "aT") };
+    };
+    const P = {};
+    for (const [k, fs] of Object.entries(FS)) {
+      P[k] = compile(k === "final" ? VS_POLY : VS_QUAD, fs);
+      if (!P[k]) return null;
+    }
+    const quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    const polyBuf = gl.createBuffer();
+    const R = { gl, gl2, canvas, kind, owner, items: new Map(), dirty: true };
+
+    function texture(filter, wrap) {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter || gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap || gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap || gl.CLAMP_TO_EDGE);
+      return t;
+    }
+    // textures de calcul d'une case (RGBA 8 bits), gardees par taille et par role
+    function target(it, key, w, h) {
+      let o = it.pool[key];
+      if (o && o.w === w && o.h === h) return o;
+      if (o) { gl.deleteTexture(o.t); gl.deleteFramebuffer(o.fb); }
+      const t = texture();
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      o = it.pool[key] = { t, fb, w, h };
+      return o;
+    }
+    function pass(prog, src, dst, set) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fb);
+      gl.viewport(0, 0, dst.w, dst.h);
+      gl.useProgram(prog.p);
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.enableVertexAttribArray(prog.aP);
+      gl.vertexAttribPointer(prog.aP, 2, gl.FLOAT, false, 0, 0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.t);
+      if (prog.u.uT) gl.uniform1i(prog.u.uT, 0);
+      if (set) set(prog.u);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      return dst;
+    }
+    // flou gaussien separable ; au-dela de 6 px, sur une image reduite (meme regle que app/effects.py : blur)
+    function blur(it, src, sigma, tag) {
+      if (sigma < BLUR_MIN) return src;
+      const w = src.w, h = src.h;
+      const f = sigma > BLUR_DIRECT ? Math.ceil(sigma / BLUR_DIRECT) : 1, s = sigma / f;
+      let low = src;
+      if (f > 1) low = pass(P.copy, src, target(it, tag + "l0", Math.max(1, Math.ceil(w / f)), Math.max(1, Math.ceil(h / f))));
+      const r = Math.ceil(3 * s), s2 = 2 * s * s;
+      const hpass = pass(P.blur, low, target(it, tag + "l1", low.w, low.h), (u) => {
+        gl.uniform2f(u.uD, 1 / low.w, 0); gl.uniform1f(u.uR, r); gl.uniform1f(u.uS2, s2); });
+      const vpass = pass(P.blur, hpass, target(it, tag + "l2", low.w, low.h), (u) => {
+        gl.uniform2f(u.uD, 0, 1 / low.h); gl.uniform1f(u.uR, r); gl.uniform1f(u.uS2, s2); });
+      return f > 1 ? pass(P.copy, vpass, target(it, tag + "up", w, h)) : vpass;
+    }
+    let gTex = null;
+    function grainTex() {
+      if (gTex) return gTex;
+      const im = grainImage();
+      if (!im.complete || !im.naturalWidth) return null;
+      gTex = texture(gl.LINEAR, gl.REPEAT);
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+      return gTex;
+    }
+
+    // grille d'une case : alignee sur les pixels du canevas (page) ou tout le canevas (vue agrandie de l'editeur)
+    function layout(it) {
+      const st = it.st, bb = bboxOf(st.p), [PW, PH] = st.inst.data.size;
+      if (kind === "page") {
+        const sx = canvas.width / PW, sy = canvas.height / PH;
+        const X0 = Math.floor(bb.x0 * sx), Y0 = Math.floor(bb.y0 * sy);
+        return { sx, sy, X0, Y0, w: Math.max(1, Math.ceil(bb.x1 * sx) - X0), h: Math.max(1, Math.ceil(bb.y1 * sy) - Y0), PH };
+      }
+      const sx = canvas.width / bb.w, sy = canvas.height / bb.h;
+      return { sx, sy, X0: bb.x0 * sx, Y0: bb.y0 * sy, w: canvas.width, h: canvas.height, PH };
+    }
+
+    function upload(it) {
+      const st = it.st, src = st.kind === "image" ? st.img : st.v;
+      if (!src) return false;
+      if (!it.media) it.media = texture(gl2 ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      gl.bindTexture(gl.TEXTURE_2D, it.media);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); }
+      catch (e) { return false; }
+      if (gl2) gl.generateMipmap(gl.TEXTURE_2D);
+      it.mediaSize = st.kind === "image" ? [src.naturalWidth, src.naturalHeight] : [src.videoWidth, src.videoHeight];
+      return true;
+    }
+
+    function chain(it, L) {
+      const st = it.st, m = st.p.media, fx = st.p.fx || {}, bb = bboxOf(st.p);
+      const pl = placement(bb, m.w || it.mediaSize[0], m.h || it.mediaSize[1], st.p.view);
+      const g = fx.grade || {};
+      const A = target(it, "A", L.w, L.h), B = target(it, "B", L.w, L.h);
+      let cur = pass(P.src, { t: it.media }, A, (u) => {
+        gl.uniform2f(u.uS, L.w / (L.sx * pl.w), L.h / (L.sy * pl.h));
+        gl.uniform2f(u.uO, (L.X0 / L.sx - pl.x) / pl.w, (L.Y0 / L.sy - pl.y) / pl.h);
+        gl.uniform4f(u.uA, g.bright ?? 1, g.contrast ?? 1, g.sat ?? 1, g.temp || 0);
+        gl.uniform2f(u.uB, 0, g.hue || 0);
+      });
+      const other = () => (cur === A ? B : A);
+      const unit = L.sy * L.PH / 1000;                      // pixels par unite (millieme de la hauteur de page)
+      const units = [L.w / L.sx / L.PH * 1000, L.h / L.sy / L.PH * 1000];
+      for (const f of fx.filters || []) {
+        if (f.on === false) continue;
+        if (f.type === "colour") {
+          cur = pass(P.colour, cur, other(), (u) => {
+            gl.uniform4f(u.uA, Math.pow(2, f.exposure), f.contrast, f.saturation, f.temperature);
+            gl.uniform2f(u.uB, f.tint, f.hue); });
+        } else if (f.type === "mono") {
+          const col = hexRgb(f.color);
+          cur = pass(P.mono, cur, other(), (u) => {
+            gl.uniform1f(u.uMode, f.mode === "bw" ? 0 : f.mode === "sepia" ? 1 : 2); gl.uniform1f(u.uAmt, f.amount);
+            gl.uniform3f(u.uCol, col[0], col[1], col[2]); });
+        } else if (f.type === "vignette") {
+          cur = pass(P.vignette, cur, other(), (u) => {
+            gl.uniform1f(u.uAmt, f.amount); gl.uniform1f(u.uSize, f.size); gl.uniform1f(u.uSoft, f.softness); });
+        } else if (f.type === "grain") {
+          const gt = grainTex();
+          if (!gt || !(f.amount > 0)) continue;
+          const k = f.animated === false ? 0 : Math.floor(clockOf(st) * st.inst.fps + 1e-6);
+          const off = grainOffset(k, panelSeed(st.p.id)), size = Math.max(0.05, f.size);
+          cur = pass(P.grain, cur, other(), (u) => {
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, gt); gl.uniform1i(u.uG, 1);
+            gl.uniform2f(u.uSc, units[0] / size, units[1] / size); gl.uniform2f(u.uOff, off[0], off[1]);
+            gl.uniform1f(u.uAmt, f.amount * GRAIN_GAIN); });
+        } else if (f.type === "blur") {
+          const out = blur(it, cur, f.amount * unit, "b");
+          if (out !== cur) cur = pass(P.copy, out, other());
+        } else if (f.type === "halation") {
+          const thr = Math.min(0.95, f.threshold), col = hexRgb(f.color);
+          const hl = pass(P.thresh, cur, target(it, "H", L.w, L.h), (u) => gl.uniform1f(u.uThr, thr));
+          const glow = blur(it, hl, f.radius * unit, "h");
+          cur = pass(P.halo, cur, other(), (u) => {
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, glow.t); gl.uniform1i(u.uG, 1);
+            gl.uniform3f(u.uCol, col[0], col[1], col[2]); gl.uniform1f(u.uAmt, f.amount * 2); });
+        } else if (f.type === "chroma") {
+          if (!(f.amount > 0)) continue;
+          const k = f.amount / (0.5 * Math.hypot(units[0], units[1]));
+          cur = pass(P.chroma, cur, other(), (u) => gl.uniform1f(u.uK, k));
+        }
+      }
+      it.out = cur;
+    }
+
+    R.add = (st) => {
+      const it = { st, pool: {}, media: null, key: "", out: null };
+      R.items.set(st, it);
+      R.dirty = true;
+      return it;
+    };
+    R.remove = (st) => {
+      const it = R.items.get(st);
+      if (!it) return;
+      for (const o of Object.values(it.pool)) { gl.deleteTexture(o.t); gl.deleteFramebuffer(o.fb); }
+      if (it.media) gl.deleteTexture(it.media);
+      R.items.delete(st);
+      R.dirty = true;
+    };
+    R.fit = (w, h) => {
+      const host = kind === "page" ? owner.pageEl : canvas.parentNode;
+      if (!host) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      let W = w || Math.round(host.clientWidth * dpr), H = h || Math.round(host.clientHeight * dpr);
+      const k = Math.min(1, 4096 / Math.max(W, H, 1));
+      W = Math.max(1, Math.round(W * k)); H = Math.max(1, Math.round(H * k));
+      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; R.dirty = true; }
+    };
+    R.draw = (force) => {
+      if (gl.isContextLost()) return;
+      let changed = false;
+      for (const it of R.items.values()) {
+        const st = it.st;
+        if (!st.ready || !st.kind) continue;
+        const L = layout(it), fx = st.p.fx || {};
+        const grainOn = (fx.filters || []).some(f => f.on !== false && f.type === "grain" && f.animated !== false && f.amount > 0);
+        const key = [st.serial, st.fxv, L.w, L.h, L.X0, L.Y0, grainOn ? Math.floor(clockOf(st) * st.inst.fps + 1e-6) : 0,
+                     grainImage().complete].join("|");
+        if (key === it.key && !force) continue;
+        if (it.serial !== st.serial || !it.media) { if (!upload(it)) continue; it.serial = st.serial; }
+        chain(it, L);
+        it.key = key; it.L = L;
+        changed = true;
+      }
+      if (!changed && !R.dirty && !force) return;
+      R.dirty = false;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const prog = P.final;
+      gl.useProgram(prog.p);
+      for (const it of R.items.values()) {
+        if (!it.out || !it.L) continue;
+        const st = it.st, L = it.L, fx = st.p.fx || {}, [PW, PH] = st.inst.data.size;
+        let verts;
+        if (kind === "page") {
+          const pts = st.p.poly || [[st.p.rect[0], st.p.rect[1]], [st.p.rect[2], st.p.rect[1]], [st.p.rect[2], st.p.rect[3]], [st.p.rect[0], st.p.rect[3]]];
+          const V = pts.map(([x, y]) => [x / PW * 2 - 1, 1 - y / PH * 2, (x * L.sx - L.X0) / L.w, (y * L.sy - L.Y0) / L.h]);
+          verts = [];
+          for (let i = 1; i < V.length - 1; i++) verts.push(...V[0], ...V[i], ...V[i + 1]);    // eventail (cases convexes)
+        } else {
+          verts = [-1, 1, 0, 0, 1, 1, 1, 0, -1, -1, 0, 1, -1, -1, 0, 1, 1, 1, 1, 0, 1, -1, 1, 1];
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, polyBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(prog.aP); gl.vertexAttribPointer(prog.aP, 2, gl.FLOAT, false, 16, 0);
+        gl.enableVertexAttribArray(prog.aT); gl.vertexAttribPointer(prog.aT, 2, gl.FLOAT, false, 16, 8);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, it.out.t);
+        gl.uniform1i(prog.u.uT, 0);
+        gl.uniform1f(prog.u.uOp, Math.max(0, Math.min(1, fx.opacity ?? 1)));
+        const bg = st.inst.bg;
+        gl.uniform3f(prog.u.uBg, bg[0], bg[1], bg[2]);
+        gl.drawArrays(gl.TRIANGLES, 0, verts.length / 4);
+      }
+      if (R.onDraw) R.onDraw();
+    };
+    R.destroy = () => {
+      renderers.delete(R);
+      for (const st of [...R.items.keys()]) R.remove(st);
+      const lose = gl.getExtension("WEBGL_lose_context");
+      if (lose) lose.loseContext();
+      canvas.remove();
+    };
+    renderers.add(R);
+    R.fit();
+    return R;
+  }
+
+  // ---------------------------------------------------------------- vue supplementaire d'une case (editeur, agrandi)
+  function addView(st, host) {
+    const cv = node("canvas", "ac-view-canvas", host);
+    const R = makeRenderer(cv, "view", st);
+    if (!R) { cv.remove(); return { remove() {}, ok: false }; }
+    R.add(st);
+    const ro = new ResizeObserver(() => R.fit());
+    ro.observe(host);
+    const vw = { ok: true, canvas: cv, R, remove() { ro.disconnect(); R.destroy(); st.views = st.views.filter(x => x !== vw); } };
+    st.views.push(vw);
+    startTick();
+    return vw;
+  }
+
   const lb = { el: null, stage: null, vw: null, st: null };
   function ensureLightbox() {
     if (lb.el) return;
@@ -585,413 +662,25 @@
     lb.el.setAttribute("aria-hidden", "true");
     lb.stage = node("div", "ac-stage", lb.el);
     const hint = node("p", "", lb.el);
-    hint.textContent = "Glisser pour bouger la caméra · Échap ou clic à côté pour fermer";
-    bindDrag(lb.stage, () => lb.st);
+    hint.textContent = "Échap ou clic à côté pour fermer";
     lb.el.addEventListener("click", (e) => { if (e.target === lb.el) closeLightbox(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
   }
   function openLightbox(st) {
     ensureLightbox();
     closeLightbox();
-    lb.stage.innerHTML = "";
+    const [x0, y0, x1, y1] = st.p.rect, ar = (x1 - x0) / Math.max(1, y1 - y0);
+    const W = Math.min(innerWidth - 32, (innerHeight - 90) * ar);
+    lb.stage.style.width = W + "px"; lb.stage.style.height = W / ar + "px";
     lb.stage.classList.toggle("bw", bwOn);
     lb.st = st; lb.vw = addView(st, lb.stage);
-    lb.vw.main.v.classList.add("ready");
     lb.el.classList.add("open"); lb.el.setAttribute("aria-hidden", "false");
   }
   function closeLightbox() {
     if (!lb.st) return;
-    removeView(lb.st, lb.vw);
-    lb.stage.innerHTML = ""; lb.st = lb.vw = null;
+    lb.vw.remove();
+    lb.st = lb.vw = null;
     lb.el.classList.remove("open"); lb.el.setAttribute("aria-hidden", "true");
-  }
-
-  // ---------------------------------------------------------------- relief (carte de profondeur, WebGL)
-  const renderers = new Set();          // canevas WebGL actifs (un par page, plus les vues de l'editeur)
-  const RELIEF_VS = "attribute vec2 p; attribute vec2 t; varying vec2 v; void main(){ v = t; gl_Position = vec4(p, 0.0, 1.0); }";
-  const RELIEF_FS = `precision highp float;
-    varying vec2 v; uniform sampler2D uImg, uDep, uBg, uL1, uL2, uLD;
-    uniform vec2 uOff; uniform float uDolly, uZoom, uFocus, uOver, uShow, uHue, uN, uMix; uniform vec2 uSize;
-    uniform vec3 uFrame; uniform vec4 uGrade;
-    // pixel source d'un point de profondeur z (camera : decalage uOff, avancee uDolly linearisee)
-    vec2 src(vec2 s, float z){ float zr = z - uFocus; return (s - 0.5) * (1.0 - uDolly * zr) + 0.5 - zr * uOff; }
-    // recherche du premier point de la surface touche, du plus proche (z = 1) au plus loin (z = 0), puis affinage :
-    // une seule solution, jamais de bord dedouble ; une pente trop forte s'etire au lieu de se replier
-    vec2 inv(sampler2D t, vec3 m, vec2 s){
-      float a = 1.0, b = 0.0;                                                     // a : devant la surface, b : touche
-      for (int i = 0; i <= 20; i++) {
-        float z = 1.0 - float(i) / 20.0;
-        if (dot(texture2D(t, clamp(src(s, z), 0.0, 1.0)).rgb, m) >= z) { b = z; break; }
-        a = z;
-      }
-      for (int j = 0; j < 5; j++) {
-        float mid = 0.5 * (a + b);
-        if (dot(texture2D(t, clamp(src(s, mid), 0.0, 1.0)).rgb, m) >= mid) b = mid; else a = mid;
-      }
-      return src(s, b);
-    }
-    // sujet detoure : profondeur lisse et prolongee hors de sa silhouette, le point fixe converge (une recherche « premier
-    // point touche » y verrait des surfaces fantomes devant le sujet)
-    vec2 fp(vec2 s, vec3 m){
-      vec2 uv = s;
-      for (int i = 0; i < 10; i++) uv = src(s, dot(texture2D(uLD, clamp(uv, 0.0, 1.0)).rgb, m));
-      return uv;
-    }
-    // ecart du moment entre les cartes et le fond au point u du fond, en pixels de l'image (le fond est un plan incline :
-    // l'ecart varie dans la case, une moyenne le sous-estimait pres des personnages)
-    float gapPx(vec2 u){
-      vec3 d = texture2D(uLD, u).rgb;
-      float g = abs(d.g - d.r);
-      if (uN > 1.5) g = max(g, abs(d.b - d.r));
-      return (length(uOff) + 0.5 * abs(uDolly)) * g * uSize.x;
-    }
-    float inside(vec2 uv){ return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0); }
-    void main(){
-      vec2 s = (v - 0.5 + uFrame.yz * (uFrame.x - 1.0) * 0.5) / uFrame.x + 0.5;   // cadrage (fx.frame)
-      s = (s - 0.5) / (uOver * uZoom) + 0.5;                                      // sur-cadrage pendant le mouvement
-      vec3 c; float dz, k1 = 0.0, k2 = 0.0;
-      if (uN > 0.5) {                                                             // couches : fond puis sujets
-        vec2 u0 = clamp(inv(uLD, vec3(1.0, 0.0, 0.0), s), 0.0, 1.0);
-        // fond : la photo au repos (le decor reconstruit autour des personnages y ferait un halo), le decor reconstruit
-        // des 2 pixels d'ecart LOCAL entre carte et fond. Avant : un fondu jusqu'a 6 pixels d'ecart moyen ; entre-temps
-        // la photo laissait voir le sujet lui-meme, decale, en transparence (« double nez », profils dedoubles, revue 3),
-        // et sur les cases ou les cartes s'ecartent peu, le fondu ne finissait jamais
-        c = mix(texture2D(uImg, u0).rgb, texture2D(uBg, u0).rgb, clamp(gapPx(u0) / 2.0, 0.0, 1.0)); dz = texture2D(uLD, u0).r;
-        vec2 u1 = fp(s, vec3(0.0, 1.0, 0.0)), q1 = clamp(u1, 0.0, 1.0);
-        vec4 a = texture2D(uL1, q1); k1 = a.a * inside(u1);                       // hors de l'image : transparent
-        c = mix(c, a.rgb, k1); dz = mix(dz, texture2D(uLD, q1).g, k1);
-        if (uN > 1.5) {
-          vec2 u2 = fp(s, vec3(0.0, 0.0, 1.0)), q2 = clamp(u2, 0.0, 1.0);
-          vec4 b = texture2D(uL2, q2); k2 = b.a * inside(u2);
-          c = mix(c, b.rgb, k2); dz = mix(dz, texture2D(uLD, q2).b, k2);
-        }
-        vec2 r = clamp(s, 0.0, 1.0);
-        c = mix(texture2D(uImg, r).rgb, c, uMix);                                 // au repos : la photo exacte
-      } else {
-        vec2 uv = clamp(inv(uDep, vec3(1.0, 0.0, 0.0), s), 0.0, 1.0);             // nappe seule
-        c = texture2D(uImg, uv).rgb; dz = texture2D(uDep, uv).r;
-      }
-      c *= uGrade.y;                                                              // luminosite
-      c = (c - 0.5) * uGrade.z + 0.5;                                             // contraste
-      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      c = mix(vec3(l), c, uGrade.x);                                              // saturation
-      c += vec3(0.07, 0.0, -0.07) * uGrade.w;                                     // temperature
-      if (uHue != 0.0) {                                                          // teinte (rotation autour du gris)
-        float a = radians(uHue), co = cos(a), si = sin(a);
-        vec3 k = vec3(0.57735);
-        c = c * co + cross(k, c) * si + k * dot(k, c) * (1.0 - co);
-      }
-      c = clamp(c, 0.0, 1.0);
-      if (uShow > 1.5) {                                                          // vue des calques (editeur)
-        float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        c = vec3(0.25 + 0.5 * lum);
-        c = mix(c, vec3(0.25, 0.55, 1.0) * (0.45 + 0.6 * lum), 0.8 * k1);
-        c = mix(c, vec3(1.0, 0.55, 0.15) * (0.45 + 0.6 * lum), 0.8 * k2);
-      } else if (uShow > 0.5) c = vec3(dz);                                       // vue de la profondeur
-      gl_FragColor = vec4(c, 1.0);
-    }`;
-  const RELIEF_MOVES = {
-    respire: (ph, a, e) => ({ ox: 0, oy: 0, dolly: 0.3 * e, zoom: 1 + 1.6 * a * e }),
-    glisse: (ph, a, e) => ({ ox: a * Math.sin(2 * Math.PI * ph) * e, oy: 0, dolly: 0, zoom: 1 }),
-    tourne: (ph, a, e) => ({ ox: a * Math.sin(2 * Math.PI * ph) * e, oy: 0.6 * a * (1 - Math.cos(2 * Math.PI * ph)) * e * 0.5, dolly: 0, zoom: 1 }),
-    vertigo: (ph, a, e) => ({ ox: 0, oy: 0, dolly: -Math.min(0.35, 12 * a) * e, zoom: 1 }),
-  };
-  const CYCLIC = { respire: true, vertigo: true };     // enveloppe qui revient a zero a chaque tour
-
-  function makeGL(canvas) {
-    const gl = canvas.getContext("webgl", { premultipliedAlpha: false, antialias: true, alpha: true, preserveDrawingBuffer: false });
-    if (!gl) return null;
-    const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, RELIEF_VS));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, RELIEF_FS));
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-    gl.useProgram(prog);
-    const U = {};
-    for (const n of ["uImg", "uDep", "uBg", "uL1", "uL2", "uLD", "uOff", "uDolly", "uZoom", "uFocus", "uOver", "uShow", "uHue",
-                     "uN", "uMix", "uSize", "uFrame", "uGrade"]) U[n] = gl.getUniformLocation(prog, n);
-    gl.uniform1i(U.uImg, 0); gl.uniform1i(U.uDep, 1); gl.uniform1i(U.uBg, 2); gl.uniform1i(U.uL1, 3); gl.uniform1i(U.uL2, 4);
-    gl.uniform1i(U.uLD, 5);
-    const R = { gl, canvas, prog, U, items: [], dirty: true, aP: gl.getAttribLocation(prog, "p"), aT: gl.getAttribLocation(prog, "t") };
-    R.texture = (source, rgba) => {
-      const t = gl.createTexture(), f = rgba ? gl.RGBA : gl.RGB;
-      gl.bindTexture(gl.TEXTURE_2D, t);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texImage2D(gl.TEXTURE_2D, 0, f, f, gl.UNSIGNED_BYTE, source);
-      return t;
-    };
-    R.free = (it) => {
-      for (const t of [it.tImg, it.tDep, ...(it.tL ? [it.tL.bg, it.tL.ld, ...it.tL.fg] : [])]) if (t) gl.deleteTexture(t);
-      it.tImg = it.tDep = it.tL = null;
-    };
-    // verts : [x, y (espace de decoupe), u, v] en triangles
-    R.add = (st, verts) => {
-      const it = { st, n: verts.length / 4, buf: gl.createBuffer(), tImg: null, tDep: null, tL: null };
-      gl.bindBuffer(gl.ARRAY_BUFFER, it.buf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-      R.items.push(it);
-      R.upload(it);
-      return it;
-    };
-    R.upload = (it) => {
-      const st = it.st;
-      if (!st.imgOk || !st.depOk) return;
-      R.free(it);
-      it.tImg = R.texture(st.imgEl); it.tDep = R.texture(st.depEl);
-      const L = st.layEls;
-      it.tL = L ? { bg: R.texture(L.bg), ld: R.texture(L.ld), fg: L.fg.map(e => R.texture(e, true)) } : null;
-      R.dirty = true;
-    };
-    R.remove = (st) => {
-      R.items = R.items.filter(it => {
-        if (it.st !== st) return true;
-        gl.deleteBuffer(it.buf); R.free(it);
-        return false;
-      });
-      R.dirty = true;
-    };
-    R.resize = (w, h) => {
-      const dpr = Math.min(2, window.devicePixelRatio || 1), k = Math.min(1, 2560 / Math.max(1, w * dpr));
-      canvas.width = Math.max(1, Math.round(w * dpr * k)); canvas.height = Math.max(1, Math.round(h * dpr * k));
-      R.dirty = true;
-    };
-    R.draw = () => {
-      R.dirty = false;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-      for (const it of R.items) {
-        if (!it.tImg) continue;
-        const st = it.st, m = st.motion || { ox: 0, oy: 0, dolly: 0, zoom: 1, over: 1 }, c = st.p.depth || {};
-        const fx = st.p.fx || {}, g = fx.grade || {}, fr = fx.frame || {};
-        gl.bindBuffer(gl.ARRAY_BUFFER, it.buf);
-        gl.enableVertexAttribArray(R.aP); gl.vertexAttribPointer(R.aP, 2, gl.FLOAT, false, 16, 0);
-        gl.enableVertexAttribArray(R.aT); gl.vertexAttribPointer(R.aT, 2, gl.FLOAT, false, 16, 8);
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, it.tImg);
-        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, it.tDep);
-        const L = it.tL;
-        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, L ? L.bg : null);
-        gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, L ? L.fg[0] : null);
-        gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, L && L.fg[1] ? L.fg[1] : null);
-        gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, L ? L.ld : null);
-        gl.uniform1f(R.U.uN, L ? L.fg.length : 0); gl.uniform1f(R.U.uMix, m.mix || 0); const bgEl = L && st.layEls && st.layEls.bg;
-        gl.uniform2f(R.U.uSize, (bgEl && bgEl.naturalWidth) || 1200, (bgEl && bgEl.naturalHeight) || 800);
-        gl.uniform2f(R.U.uOff, m.ox, m.oy);
-        gl.uniform1f(R.U.uDolly, m.dolly); gl.uniform1f(R.U.uZoom, m.zoom); gl.uniform1f(R.U.uOver, m.over);
-        gl.uniform1f(R.U.uFocus, c.focus ?? 0.7); gl.uniform1f(R.U.uShow, st.showMap === "layers" ? 2 : st.showMap ? 1 : 0);
-        gl.uniform3f(R.U.uFrame, fr.zoom > 1 ? fr.zoom : 1, fr.zoom > 1 ? (fr.x || 0) : 0, fr.zoom > 1 ? (fr.y || 0) : 0);
-        gl.uniform4f(R.U.uGrade, g.sat ?? 1, g.bright ?? 1, g.contrast ?? 1, g.temp || 0);
-        gl.uniform1f(R.U.uHue, g.hue || 0);
-        gl.drawArrays(gl.TRIANGLES, 0, it.n);
-      }
-    };
-    R.destroy = () => {
-      renderers.delete(R);
-      const lose = gl.getExtension("WEBGL_lose_context");
-      if (lose) lose.loseContext();
-      canvas.remove();
-    };
-    renderers.add(R);
-    return R;
-  }
-
-  // canevas de la page : sous les cases (qui gardent les gestes), au-dessus de l'image de fond, sous les traits
-  function pageRenderer(inst) {
-    if (inst.rr !== undefined) return inst.rr;
-    const cv = document.createElement("canvas");
-    cv.className = "ac-relief";
-    inst.pageEl.insertBefore(cv, inst.pageEl.querySelector(".ac-panel"));
-    const R = makeGL(cv);
-    inst.rr = R;
-    if (!R) { cv.remove(); return null; }
-    const ro = new ResizeObserver(() => R.resize(inst.pageEl.clientWidth, inst.pageEl.clientHeight));
-    ro.observe(inst.pageEl);
-    const destroy = R.destroy;
-    R.destroy = () => { ro.disconnect(); destroy(); };
-    return R;
-  }
-
-  function polyVerts(p, PW, PH) {
-    const [x0, y0, x1, y1] = p.rect;
-    const pts = p.poly || [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    const V = pts.map(([x, y]) => [x / PW * 2 - 1, 1 - y / PH * 2, (x - x0) / (x1 - x0), (y - y0) / (y1 - y0)]);
-    const out = [];
-    for (let i = 1; i < V.length - 1; i++) out.push(...V[0], ...V[i], ...V[i + 1]);    // eventail (cases convexes)
-    return out;
-  }
-
-  // images d'une case en relief : photo + nappe, et ses couches s'il y en a (une couche absente : la nappe seule)
-  function loadRelief(st, stamp) {
-    const c = st.p.depth, lay = c.layers, gen = (st.loadGen = (st.loadGen || 0) + 1);
-    const want = { img: c.img, dep: c.map };
-    const fg = lay && lay.bg && lay.ld && (lay.fg || []).length ? lay.fg.slice(0, 2) : [];
-    if (fg.length) { want.bg = lay.bg; want.ld = lay.ld; fg.forEach((f, i) => { want["f" + i] = f; }); }
-    const els = {}, state = {};
-    const settle = () => {
-      if (gen !== st.loadGen || Object.keys(want).some(k => !state[k])) return;       // pas tout arrive, ou remplace
-      st.imgEl = els.img; st.depEl = els.dep;
-      st.imgOk = state.img === "ok"; st.depOk = state.dep === "ok";
-      const keys = fg.map((_, i) => "f" + i);
-      st.layEls = fg.length && ["bg", "ld", ...keys].every(k => state[k] === "ok")
-        ? { bg: els.bg, ld: els.ld, fg: keys.map(k => els[k]) } : null;
-      for (const R of renderers) for (const it of R.items) if (it.st === st) R.upload(it);
-      st.depthData = st.layData = null;
-    };
-    for (const [k, src] of Object.entries(want)) {
-      const im = new Image();
-      els[k] = im;
-      im.onload = () => { state[k] = "ok"; settle(); };
-      im.onerror = () => { state[k] = "err"; settle(); };
-      im.src = withStamp(st.base + src, stamp);
-    }
-  }
-
-  function makeRelief(inst, p, el, base) {
-    el.classList.add("relief");
-    const st = { p, inst, el, base, relief: true, views: [], rviews: [], layers: [], over: false, hover: false, pinned: false,
-                 showMap: false, rv: { ph: 0, lvl: 0, once: -1, dx: 0, dy: 0, drag: null }, motion: null };
-    loadRelief(st, inst.stamp);
-    const R = pageRenderer(inst);
-    if (R) R.add(st, polyVerts(p, inst.data.size[0], inst.data.size[1]));
-    buildLayers(st);
-    el.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") { st.over = true; soundOnPanel(st, true); } });
-    el.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") st.over = false; if (!st.pinSound) soundOnPanel(st, false); });
-    // glisser : la camera suit le doigt ou la souris ; simple clic : le mouvement joue une fois (ou l'editeur s'ouvre)
-    el.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      try { el.setPointerCapture(e.pointerId); } catch (_) { /* pointeur deja relache */ }
-      const r = el.getBoundingClientRect();
-      st.rv.drag = { x: e.clientX, y: e.clientY, w: r.width, h: r.height, t: performance.now(), moved: false };
-      if (e.pointerType === "touch") {
-        for (const i2 of pages) for (const o of i2.panels) if (o !== st && o.hover) soundOnPanel(o, false);
-        if (st.layers.length) soundOnPanel(st, true);
-      }
-    });
-    el.addEventListener("pointermove", (e) => {
-      const d = st.rv.drag;
-      if (!d) return;
-      const dx = (e.clientX - d.x) / d.w, dy = (e.clientY - d.y) / d.h;
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) d.moved = true;
-      st.rv.dx = Math.max(-1, Math.min(1, dx * 2.5)); st.rv.dy = Math.max(-1, Math.min(1, dy * 2.5));
-    });
-    const up = (e) => {
-      const d = st.rv.drag;
-      if (!d) return;
-      st.rv.drag = null;
-      if (!d.moved && performance.now() - d.t < 600 && e.type === "pointerup") {
-        if (editHook) editHook(st); else st.rv.once = performance.now();
-      }
-    };
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-    inst.panels.push(st);
-  }
-
-  // mouvement d'une case en relief : boucle douce tant qu'elle est survolee (ou un tour au clic), plus le glisser
-  function stepRelief(st, now, dt) {
-    const c = st.p.depth || {}, rv = st.rv, a = c.amount || 0.025, dur = Math.max(0.5, c.duration || 2);
-    const move = RELIEF_MOVES[c.preset] || RELIEF_MOVES.respire;
-    const hoverOn = (c.trigger || "hover") === "hover" && (st.over || st.pinned || st.inst.play === "always");
-    rv.lvl += ((hoverOn ? 1 : 0) - rv.lvl) * Math.min(1, dt * (hoverOn ? 2.5 : 2));
-    if (rv.lvl < 0.002 && !hoverOn) rv.lvl = 0;
-    let m;
-    if (rv.once >= 0) {                                  // un tour, au clic
-      let t = (now - rv.once) / 1000 / dur;
-      if (t >= 1) { t = 1; rv.once = -1; }
-      const sm = t * t * (3 - 2 * t), env = Math.sin(Math.PI * sm);
-      m = move(sm, a, env);
-      m.k = env;
-    } else {
-      if (rv.lvl > 0) rv.ph = (rv.ph + dt / dur) % 1;
-      const e = CYCLIC[c.preset || "respire"] ? (0.5 - 0.5 * Math.cos(2 * Math.PI * rv.ph)) * rv.lvl : rv.lvl;
-      m = move(rv.ph, a, e);
-      m.k = rv.lvl;
-    }
-    // glisser : decalage qui suit le pointeur, puis revient en douceur
-    if (!rv.drag) { rv.dx *= Math.exp(-6 * dt); rv.dy *= Math.exp(-6 * dt); if (Math.abs(rv.dx) + Math.abs(rv.dy) < 1e-3) rv.dx = rv.dy = 0; }
-    m.ox -= rv.dx * a * 1.6; m.oy -= rv.dy * a * 1.0;
-    const k = Math.max(m.k, Math.min(1, Math.hypot(rv.dx, rv.dy)));
-    m.over = 1 + k * (2.4 * a + 0.02) + 0.35 * Math.abs(m.dolly);   // au repos : 1 = identique a l'image de la page
-    const x = Math.min(1, k / 0.25);
-    m.mix = x * x * (3 - 2 * x);                        // couches : fondu depuis la photo exacte des que ca bouge
-    const old = st.motion;
-    if (!old || old.ox !== m.ox || old.oy !== m.oy || old.dolly !== m.dolly || old.zoom !== m.zoom || old.over !== m.over
-        || old.mix !== m.mix) {
-      st.motion = m;
-      for (const R of renderers) if (R.items.some(it => it.st === st)) R.dirty = true;
-    }
-  }
-
-  // vue supplementaire d'une case en relief (editeur) : son propre canevas, toute la surface
-  function addReliefView(st, host) {
-    const cv = document.createElement("canvas");
-    cv.className = "ac-relief-view";
-    host.appendChild(cv);
-    const R = makeGL(cv);
-    if (!R) { cv.remove(); return { remove() {}, ok: false }; }
-    R.add(st, [-1, 1, 0, 0, 1, 1, 1, 0, 1, -1, 1, 1, -1, 1, 0, 0, 1, -1, 1, 1, -1, -1, 0, 1]);
-    const ro = new ResizeObserver(() => R.resize(host.clientWidth, host.clientHeight));
-    ro.observe(host);
-    const vw = { ok: true, canvas: cv, remove() { ro.disconnect(); R.destroy(); st.rviews = st.rviews.filter(x => x !== vw); } };
-    st.rviews.push(vw);
-    startTick();
-    return vw;
-  }
-  function setRelief(st, cfg) {
-    st.p.depth = Object.assign({}, st.p.depth, cfg);
-    for (const R of renderers) if (R.items.some(it => it.st === st)) R.dirty = true;
-  }
-  // vue de controle (editeur) : true = profondeur, "layers" = calques en couleur, false = image
-  function reliefShowMap(st, on) { st.showMap = on === "layers" ? "layers" : !!on; for (const R of renderers) R.dirty = true; }
-  function reliefLayers(st) { return st.layEls ? st.layEls.fg.length : 0; }
-  function reliefPlay(st) { st.rv.once = performance.now(); }
-  // profondeur (0..1) sous un point de la case : pour choisir le plan net d'un clic
-  function reliefDepthAt(st, u, v) {
-    if (!st.depOk) return null;
-    if (st.layEls) {                        // couches : la profondeur que le lecteur compose au repos (fond, puis sujets)
-      if (!st.layData) {
-        const read = (img) => {
-          const c = document.createElement("canvas");
-          c.width = img.naturalWidth; c.height = img.naturalHeight;
-          const g = c.getContext("2d", { willReadFrequently: true });
-          g.drawImage(img, 0, 0);
-          return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
-        };
-        st.layData = { ld: read(st.layEls.ld), fg: st.layEls.fg.map(read) };
-      }
-      const px = (D, k) => {
-        const x = Math.max(0, Math.min(D.w - 1, Math.round(u * (D.w - 1)))), y = Math.max(0, Math.min(D.h - 1, Math.round(v * (D.h - 1))));
-        return D.d[(y * D.w + x) * 4 + k] / 255;
-      };
-      let z = px(st.layData.ld, 0);
-      st.layData.fg.forEach((F, i) => { const a = px(F, 3); z = z * (1 - a) + px(st.layData.ld, i + 1) * a; });
-      return z;
-    }
-    if (!st.depthData) {
-      const c = document.createElement("canvas");
-      c.width = st.depEl.naturalWidth; c.height = st.depEl.naturalHeight;
-      const g = c.getContext("2d", { willReadFrequently: true });
-      g.drawImage(st.depEl, 0, 0);
-      st.depthData = { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
-    }
-    const D = st.depthData, x = Math.max(0, Math.min(D.w - 1, Math.round(u * (D.w - 1)))), y = Math.max(0, Math.min(D.h - 1, Math.round(v * (D.h - 1))));
-    return D.d[(y * D.w + x) * 4] / 255;
-  }
-  function updateRelief(st, entry, stamp) {
-    const reload = !st.p.depth || entry.depth.img !== st.p.depth.img || entry.depth.map !== st.p.depth.map || stamp
-      || JSON.stringify(entry.depth.layers || null) !== JSON.stringify(st.p.depth.layers || null);
-    st.p = entry;
-    if (reload) loadRelief(st, stamp);
-    const was = st.hover;
-    dropLayers(st);
-    const keep = st.inst.stamp;
-    st.inst.stamp = stamp || keep;
-    buildLayers(st);
-    st.inst.stamp = keep;
-    if (was) soundOnPanel(st, true);
-    for (const R of renderers) R.dirty = true;
   }
 
   // ---------------------------------------------------------------- mode edition (apercu de l'application)
@@ -999,69 +688,75 @@
     editHook = fn || null;
     for (const inst of pages) inst.pageEl.classList.toggle("ac-editing", !!editHook);
   }
-  function setFx(st, fx) {
-    st.p.fx = fx || undefined;
-    if (st.relief) { for (const R of renderers) R.dirty = true; return; }
-    configure(st);
-    applyFx(st, true);
-    render(st);
-  }
-  // nouvelle version de la case (rendu regenere, son remplace...) : sans demonter la page.
-  // soundsOnly : la video n'a pas change (on garde sa position et son fichier)
-  function updatePanel(st, entry, stamp, soundsOnly) {
-    const src = soundsOnly && entry.video === st.p.video ? st.src : withStamp(st.base + entry.video, stamp);
+  function touch(st) { st.fxv++; }
+  function setFx(st, fx) { st.p.fx = fx || undefined; touch(st); }
+  function setView(st, view) { st.p.view = view; touch(st); }
+  // nouvelle version de la case (video remplacee, version a l'envers prete, sons changes) sans demonter la page
+  function updatePanel(st, entry, stamp) {
+    const old = st.p;
     st.p = entry;
-    if (src !== st.src) {
-      st.src = src;
-      for (const vw of st.views) for (const t of [vw.main, vw.xt]) if (t) { t.shown = -1; t.busy = false; t.v.src = src; }
+    const srcChanged = JSON.stringify(old.media || null) !== JSON.stringify(entry.media || null);
+    if (stamp) st.inst.stamp = stamp;
+    if (srcChanged) {
+      loadMedia(st);
+      for (const R of renderers) { const it = R.items.get(st); if (it) it.serial = -1; }
+      if (st.kind && st.inst.R && !st.inst.R.items.has(st)) st.inst.R.add(st);
     }
-    configure(st);
-    if (!soundsOnly) { st.pos = st.lastPos = st.home; st.vel = 0; st.anim = null; }
-    const was = st.hover;
-    dropLayers(st);
-    const keep = st.inst.stamp;
-    st.inst.stamp = stamp || keep;
-    buildLayers(st);
-    st.inst.stamp = keep;
-    if (was) soundOnPanel(st, true);
-    applyFx(st, true);
-    render(st);
+    st.el.classList.toggle("empty", !st.kind);
+    if (JSON.stringify(old.more || null) !== JSON.stringify(entry.more || null) || stamp) buildSounds(st);
+    touch(st);
   }
   function setLayerVolume(st, key, vol) {
-    const L = (st.layers || []).find(o => o.key === key);
-    if (!L) return;
-    L.vol = Math.max(0, Math.min(1, vol));
-    if (st.hover && soundOn) fade(L, L.vol);
+    const S = st.sounds.find(o => o.key === key);
+    if (S) S.vol = Math.max(0, Math.min(1, vol));
   }
-  // son global remplace (ou retire) : fondu de sortie de l'ancien, le nouveau prend sa place
   function setPageSound(inst, snd, stamp) {
-    if (inst.global) {
-      const g = inst.global;
-      fade(g, 0);
-      setTimeout(() => { g.a.pause(); g.a.src = ""; }, 900);
-      inst.global = null;
-    }
+    if (inst.music) { inst.music.a.pause(); inst.music.a.src = ""; inst.music = null; }
     inst.data.sound = snd || undefined;
-    if (!snd) return;
-    const a = new Audio(withStamp(inst.base + snd.src, stamp));
-    a.loop = true; a.volume = 0; a.preload = "auto";
-    inst.global = { a, vol: Math.max(0, Math.min(1, snd.vol ?? 0.7)), timer: null, mode: "loop" };
-    if (unlocked && soundOn) startGlobal(inst);
+    if (snd) inst.music = makeSound(withStamp(inst.base + snd.src, stamp), snd.vol ?? 0.7, true);
   }
-  function setGlobalVolume(inst, vol) {
-    if (!inst.global) return;
-    inst.global.vol = Math.max(0, Math.min(1, vol));
-    if (!inst.global.a.paused) fade(inst.global, duckedVolume(inst.global));
-    else if (unlocked) startGlobal(inst);
-  }
-  function seekTo(st, frame) {
-    st.anim = null; st.vel = 0;
-    st.pos = clampPos(frame, st);
-    st.resumeAt = performance.now() + 600;
-    render(st);
-  }
+  function setGlobalVolume(inst, vol) { if (inst.music) inst.music.vol = Math.max(0, Math.min(1, vol)); }
+  function scrub(st, frame) { st.scrubFrame = frame == null ? null : frame | 0; }
   function setPinned(st, on) { st.pinned = !!on; }
-  function setPanelSound(st, on) { st.pinSound = !!on; soundOnPanel(st, !!on); }
+  function setPanelSound(st, on) { st.pinSound = !!on; }
+
+  // controle lecteur / export : la page a l'instant t, a la taille W x H (fond, cases, traits), en image
+  async function capture(inst, t, W, H) {
+    const wasPlaying = inst.playing;
+    inst.playing = false;
+    seek(inst, t);
+    inst.R.fit(W, H);
+    inst.R.frozen = true;
+    const waits = [];
+    for (const st of inst.panels) {
+      if (st.kind !== "video" || !st.v) continue;
+      const P = sourcePos(st.p.fx || {}, st.p.media, t), v = st.v;
+      v.pause();
+      waits.push(new Promise((ok) => {
+        const done = () => { st.serial++; ok(); };
+        if (Math.abs(v.currentTime - P.exact) < 1e-4 && v.readyState >= 2) { done(); return; }
+        v.addEventListener("seeked", () => setTimeout(done, 60), { once: true });
+        v.currentTime = P.exact;
+      }));
+    }
+    await Promise.all(waits);
+    await new Promise((ok) => setTimeout(ok, 120));
+    const out = document.createElement("canvas");
+    out.width = W; out.height = H;
+    const g = out.getContext("2d");
+    const R = inst.R;
+    R.onDraw = () => {
+      g.drawImage(inst.pageEl.querySelector(".ac-bg"), 0, 0, W, H);
+      g.drawImage(R.canvas, 0, 0, W, H);
+      g.drawImage(inst.pageEl.querySelector(".ac-frames"), 0, 0, W, H);
+    };
+    R.draw(true);
+    R.onDraw = null;
+    R.frozen = false;
+    inst.playing = wasPlaying;
+    R.fit();
+    return out;
+  }
 
   // ---------------------------------------------------------------- reglages globaux
   function setBW(on) {
@@ -1069,24 +764,14 @@
     for (const inst of pages) inst.pageEl.classList.toggle("bw", bwOn);
     if (lb.stage) lb.stage.classList.toggle("bw", bwOn);
   }
-  function setSound(on) {
-    soundOn = !!on;
-    if (!soundOn) for (const inst of pages) for (const st of inst.panels) if (st.hover) soundOnPanel(st, false);
-    for (const inst of pages) if (inst.global) { if (soundOn) startGlobal(inst); else fade(inst.global, 0); }
+  function setSound(on) { soundOn = !!on; }
+  function resetAll() { for (const inst of pages) seek(inst, 0); }
+  function hasAudio(M) {
+    return !!M.sound || M.panels.some(p => (p.media && p.media.audio) || (p.more || []).length);
   }
-  function resetAll() { for (const inst of pages) resetPage(inst); }
-  function hasAudio(M) { return !!M.sound || M.panels.some(p => p.audio || p.voice || p.foley || (p.more || []).length); }
 
-  window.AlivePlayer = { isUnlocked: () => unlocked, mount, setBW, setSound, resetAll, hasAudio, isLightboxOpen: () => !!lb.st,
-                         setEditHook, addView, removeView, setFx, updatePanel, setLayerVolume, setGlobalVolume, seekTo,
-                         setPinned, setPanelSound, setPageSound, frameOf: idxOf, _pages: pages,
-                         addReliefView, setRelief, reliefShowMap, reliefLayers, reliefPlay, reliefDepthAt, updateRelief,
-                         // tremble d'une case : cycles par boucle et frequence reellement jouee
-                         shakeInfo(st) {
-                           const sh = (st.p.fx || {}).shake;
-                           if (!sh) return null;
-                           const L = shakeLoop(st), c = shakeCycles(sh, L.sec).x[0];
-                           return { cycles: c, sec: L.sec, hz: c / L.sec };
-                         },
-                         speedAt: (st, f) => easeK(st, f) };
+  window.AlivePlayer = { isUnlocked: () => unlocked, mount, play, seek, setMode, setBW, setSound, resetAll, hasAudio,
+                         isLightboxOpen: () => !!lb.st, setEditHook, addView, setFx, setView, updatePanel, setLayerVolume,
+                         setGlobalVolume, setPageSound, scrub, setPinned, setPanelSound, capture, _pages: pages,
+                         frameOf: (st) => st.idx ?? 0, clockOf, sourcePos, placement };
 })();

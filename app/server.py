@@ -506,6 +506,8 @@ class Handler(BaseHTTPRequestHandler):
             t = float(q.get("t") or 0)
             png = videoexport.still(pid, t, int(q.get("height") or 720))
             return self.send_bytes(png, "image/png")
+        if sub == "compare" and m == "POST":           # controle : capture du lecteur contre l'image de l'export
+            return self.send_json(videoexport.compare(pid, self.body(), float(q.get("t") or 0)))
         if sub == "reveal" and m == "POST":
             folder = store.pdir(pid) / "export"
             if not (folder / "index.html").exists():
