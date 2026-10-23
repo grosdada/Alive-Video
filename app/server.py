@@ -439,8 +439,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(store.get(pid)["panels"][parts[3]])
         if sub == "panels" and len(parts) == 5 and parts[4] in ("image", "video", "sound") and m == "POST":
             name = q.get("name") or {"image": "image.png", "video": "video.mp4", "sound": "son.mp3"}[parts[4]]
-            if parts[4] == "video":
-                return self.send_json(video_panel(pid, parts[3], self.body_file(), name))
+            if parts[4] == "video":                          # pilotage : l'image de la page suit (pas de navigateur)
+                video = video_panel(pid, parts[3], self.body_file(), name)
+                compose.compose(pid)
+                return self.send_json(video)
             data = self.body()
             if parts[4] == "sound":                           # son ajoute a la case (jamais deux fois le meme fichier)
                 snd = sounds.place(pid, data, name, q.get("force") == "1")
@@ -460,6 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                 panel.pop("video", None)
                 panel["view"] = {"zoom": 1, "ox": 0, "oy": 0}
             store.mutate(pid, setimg)
+            compose.compose(pid)
             return self.send_json({"file": rel, "w": w, "h": hh})
         if sub == "page" and m == "POST":
             name = q.get("name", "")
