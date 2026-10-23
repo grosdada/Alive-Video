@@ -2,8 +2,13 @@
 // Une ligne par point d'attache (chaque trait a deux bouts : a et b) ; les losanges sont les images cles. Toucher une
 // attache dans la planche selectionne sa ligne (le trait entier : ses deux lignes). Glisser l'attache pose une cle a
 // l'instant de la tete de lecture. Les cles se deplacent au glisser, se suppriment (Suppr), changent de courbe.
+// Module « Style de page » (bouton 🎨, allume ou eteint) : fond, couleur des cases, couleur et epaisseur des traits,
+// gouttiere, marge ; chaque ligne a son reglage, qui pose une cle a la tete de lecture.
 import { h } from "./api.js";
-import { EASES, cutIdsOf, nodeAt, trackValue } from "./geometry.js";
+import { EASES, PAGE_TRACKS, colorValue, cutIdsOf, nodeAt, rgbHex, trackValue } from "./geometry.js";
+
+const pageOn = () => { try { return localStorage.getItem("av-tl-page") === "1"; } catch (_) { return false; } };
+const setPageOn = (v) => { try { localStorage.setItem("av-tl-page", v ? "1" : "0"); } catch (_) { /* stockage indisponible */ } };
 
 const fmt = (s) => (Math.round(s * 100) / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " s";
 
@@ -49,7 +54,10 @@ export class Timeline {
       h("button.tl-btn", { title: "Poser une clé ici sur la ligne choisie (valeur actuelle)", on: { click: () => this.addKeyHere() } }, "◆ Clé ici"),
       h("label.tl-lab", "Courbe ", ease),
       h("button.tl-btn", { title: "Supprimer la clé choisie (Suppr)", on: { click: () => this.deleteKey() } }, "✕ Clé"),
-      h("button.tl-btn", { title: "Retirer toute l'animation du trait choisi", on: { click: () => this.clearCut() } }, "Effacer le trait"),
+      h("button.tl-btn", { title: "Retirer toute l'animation de la ligne choisie (trait : ses deux bouts)", on: { click: () => this.clearCut() } }, "Effacer la ligne"),
+      h("span.tl-sep"),
+      h("button.tl-btn" + (pageOn() ? ".on" : ""), { title: "Style de page : fond, couleur des cases, traits, gouttière, marge (animables)",
+                                                     on: { click: () => { setPageOn(!pageOn()); this.render(); } } }, "🎨 Style de page"),
       h("span.sp"),
       h("small.muted", `durée de la page ${fmt(dur)}`),
       h("button.tl-btn", { title: "Fermer la timeline (l'animation reste)", on: { click: () => app.setAnimMode(false) } }, "✕"));
@@ -64,6 +72,22 @@ export class Timeline {
     this.bindLane(lane0, null);
     grid.append(ruler);
     this.rows = {};
+    if (pageOn()) {                                  // module « Style de page »
+      grid.append(h("div.tl-row.tl-section", h("div.tl-label", "Style de page"), h("div")));
+      for (const d of PAGE_TRACKS) {
+        const key = "page." + d.k;
+        const ctl = this.pageControl(d, key);
+        const label = h("div.tl-label", { title: "Choisir cette ligne", on: { click: (e) => { if (!e.target.closest("input")) this.selectRow(key); } } },
+          h("span", d.label), ctl.el);
+        const lane = h("div.tl-lane");
+        const row = h("div.tl-row", { "data-track": key, "data-cut": "page" }, label, lane);
+        (this.tracks[key] || []).forEach((k, i) => lane.append(this.diamond(key, i, k, dur)));
+        this.bindLane(lane, key);
+        this.rows[key] = { row, val: null, lane, ctl };
+        grid.append(row);
+      }
+      grid.append(h("div.tl-row.tl-section", h("div.tl-label", "Traits"), h("div")));
+    }
     const cuts = this.cuts();
     if (!cuts.length) grid.append(h("p.muted.tl-empty", "Aucun trait : coupe d'abord des cases."));
     for (const c of cuts) {
@@ -90,7 +114,8 @@ export class Timeline {
   }
 
   diamond(key, i, k, dur) {
-    const d = h("span.tl-key", { title: `${fmt(k.t)} · ${Math.round(k.v * 100)} %`, style: { left: (k.t / dur * 100) + "%" },
+    const shown = typeof k.v === "string" ? k.v : key.startsWith("page.") ? String(Math.round(k.v * 10) / 10) : Math.round(k.v * 100) + " %";
+    const d = h("span.tl-key", { title: `${fmt(k.t)} · ${shown}`, style: { left: (k.t / dur * 100) + "%" },
                                  "data-track": key, "data-i": String(i) });
     if (this.sel && this.sel.track === key && this.sel.i === i) d.classList.add("on");
     d.addEventListener("pointerdown", (e) => {
@@ -176,8 +201,36 @@ export class Timeline {
     if (k) this.easeEl.value = k.e || "ease";
   }
 
-  // valeur actuelle d'une attache (dans l'arbre et ses cles)
+  // reglage d'une ligne du style de page : couleur ou curseur ; il pose une cle a la tete de lecture
+  pageControl(d, key) {
+    const app = this.app, t0 = () => app.snap(app.animT);
+    const put = (v, done) => {
+      const keys = this.tracks[key] || [];
+      if (!keys.length && t0() > 1e-6) app.setKey(key, 0, this.valueOf(key, 0));   // part de la valeur d'avant
+      app.setKey(key, t0(), v);
+      this.selectRow(key);
+      if (done) app.animChanged(); else { app.editor.render(true); this.update(); }
+    };
+    if (d.color) {
+      const inp = h("input", { type: "color", title: "Couleur à cet instant (pose une clé)" });
+      inp.addEventListener("input", () => put(inp.value, false));
+      inp.addEventListener("change", () => put(inp.value, true));
+      return { el: h("span.tl-ctl", inp), set: (v) => { if (document.activeElement !== inp) inp.value = v; } };
+    }
+    const inp = h("input", { type: "range", min: d.min, max: d.max, step: d.step, title: "Valeur à cet instant (pose une clé)" });
+    const out = h("output");
+    inp.addEventListener("input", () => { out.textContent = inp.value; put(+inp.value, false); });
+    inp.addEventListener("change", () => put(+inp.value, true));
+    return { el: h("span.tl-ctl", inp, out), set: (v) => { if (document.activeElement !== inp) inp.value = v; out.textContent = Math.round(v * 10) / 10; } };
+  }
+
+  // valeur actuelle d'une ligne : attache (dans l'arbre et ses cles) ou style de page
   valueOf(track, t) {
+    if (track.startsWith("page.")) {
+      const k = track.slice(5), d = PAGE_TRACKS.find(x => x.k === k), pg = this.P.page;
+      if (d && d.color) return rgbHex(colorValue(this.tracks[track], t, pg[k] || (k === "stroke" ? "#111111" : "#ffffff")));
+      return trackValue(this.tracks[track], t, +pg[k] || 0);
+    }
     const [id, end] = track.split(".");
     const c = this.cuts().find(x => x.id === id);
     if (!c) return 0;
@@ -205,8 +258,19 @@ export class Timeline {
 
   clearCut() {
     const id = this.app.selectedCut;
-    if (!id) { this.app.toast("Choisis d'abord un trait."); return; }
+    if (!id) { this.app.toast("Choisis d'abord une ligne."); return; }
     const t = this.app.animT;
+    if (id === "page") {                           // style de page : la ligne garde sa valeur du moment
+      for (const track of this.selRows || []) {
+        if (!track.startsWith("page.")) continue;
+        this.P.page[track.slice(5)] = this.valueOf(track, t);
+        delete this.tracks[track];
+      }
+      this.sel = null;
+      this.app.animChanged();
+      this.app.refreshInspector();
+      return;
+    }
     for (const end of ["a", "b"]) {                // le trait garde la position qu'il a a cet instant
       const track = `${id}.${end}`;
       if (!this.tracks[track]) continue;
@@ -226,6 +290,7 @@ export class Timeline {
     if (this.timeEl) this.timeEl.textContent = `${fmt(t)} / ${fmt(dur)}`;
     if (this.playBtn) this.playBtn.textContent = this.app.animPlaying ? "⏸" : "▶";
     for (const [key, r] of Object.entries(this.rows || {})) {
+      if (r.ctl) { r.ctl.set(this.valueOf(key, t)); continue; }
       r.val.textContent = Math.round(this.valueOf(key, t) * 100) + " %" + ((this.tracks[key] || []).length ? "" : " · fixe");
     }
   }

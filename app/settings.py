@@ -17,6 +17,7 @@ _lock = threading.Lock()
 DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 8792},
     "deploy": {"host": "", "port": 65002, "user": "", "key": "~/.ssh/alive_comics_hostinger", "root": "", "url": ""},
+    "export": {"folder": ""},          # dossier des videos exportees ; vide = le dossier video/ de chaque planche
 }
 SECRET_PATHS = []
 

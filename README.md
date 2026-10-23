@@ -35,7 +35,9 @@ Mac (`~/Alive-Video/projects`).
 
 1. **Nouvelle planche** : un nom, un format (page BD, manga, 4:5, carré, écran 9:16), le sens et un découpage de départ.
 2. **Cadres** : glisser un trait le déplace, glisser un de ses bouts l'incline (Maj : trait droit) ; couper, supprimer,
-   pivoter, variante au hasard ; fond, traits, gouttière, marge. Ctrl+Z / Ctrl+Y.
+   pivoter, variante au hasard ; fond, couleur des cases, traits, gouttière, marge. Ctrl+Z / Ctrl+Y.
+   Barre du haut : **✏️ Edit** montre les icônes de chaque case (média, filtres, sons) ; hors de ce mode la planche reste
+   nette.
 3. **Vidéos** : glisser une vidéo sur une case (ou cliquer dedans). Une vidéo par case (une image fixe marche aussi).
    L'original est gardé tel quel ; une copie légère est faite pour l'aperçu (quelques secondes). Molette pour zoomer,
    glisser pour recadrer.
@@ -53,10 +55,13 @@ Mac (`~/Alive-Video/projects`).
 7. **🎞 Animate framing** (barre du haut) : le découpage s'anime. Une timeline s'ouvre sous la planche, une ligne par
    point d'attache des traits ; toucher une attache met la timeline sur sa ligne, la glisser pose une image clé à
    l'instant de la tête de lecture. Clés déplaçables, courbes (douce, linéaire, accélère, ralentit, palier), suppression.
-   L'aperçu et la vidéo exportée suivent.
+   L'aperçu et la vidéo exportée suivent. Le bouton **🎨 Style de page** de la timeline (allumé ou éteint) ajoute les
+   lignes du fond, de la couleur des cases, de la couleur et de l'épaisseur des traits, de la gouttière et de la marge,
+   animables de la même façon (chaque ligne a son réglage, qui pose une clé). Les icônes des cases sont cachées.
 8. **Exporter la vidéo** : durée (automatique = le plus long passage, ou au choix), résolution (480p à 4K), images par
-   seconde (24 à 60). Le fichier arrive dans `projects/<planche>/video/`. Les effets y sont calculés exactement comme dans
-   l'aperçu.
+   seconde (24 à 60), et **Enregistrer dans** : par défaut le dossier `projects/<planche>/video/`, ou un autre choisi avec
+   **📁 Parcourir…** (gardé pour la planche ; « ↺ par défaut » y revient). Le dossier par défaut de toutes les planches se
+   change dans ⚙ Réglages › Vidéos exportées. Les effets y sont calculés exactement comme dans l'aperçu.
 9. **Livres et publication** : comme Alive-Comics (livres de plusieurs planches, projets de rangement, publication par
    SSH une fois réglée dans ⚙ Réglages).
 

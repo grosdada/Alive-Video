@@ -16,7 +16,7 @@ FORMATS = {
     "carre": (2000, 2000, "Carré"),
     "ecran": (1350, 2400, "Écran 9:16"),
 }
-PAGE_DEFAULTS = {"format": "bd", "orientation": "portrait", "width": 1600, "height": 2400, "bg": "#ffffff",
+PAGE_DEFAULTS = {"format": "bd", "orientation": "portrait", "width": 1600, "height": 2400, "bg": "#ffffff", "fill": "#ffffff",
                  "stroke": "#111111", "strokeWidth": 5, "gutter": 22, "margin": 60}
 
 
@@ -213,6 +213,46 @@ def layout_at(layout, anim, t):
     return walk(layout)
 
 
+# style de page anime (module « Style de page » de la timeline) : pistes "page.<cle>"
+PAGE_COLORS = ("bg", "fill", "stroke")
+PAGE_NUMS = {"strokeWidth": (0, 30), "gutter": (0, 120), "margin": (0, 400)}
+
+
+def hex_rgb(h):
+    s = str(h or "#ffffff").lstrip("#")
+    try:
+        return [int(s[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    except ValueError:
+        return [1.0, 1.0, 1.0]
+
+
+def color_value(keys, t, fallback):
+    """Couleur a l'instant t (composantes 0..1, interpolees une a une) : meme calcul que colorValue (JS)."""
+    if not keys:
+        return hex_rgb(fallback)
+    if t <= keys[0]["t"]:
+        return hex_rgb(keys[0]["v"])
+    for k0, k1 in zip(keys, keys[1:]):
+        if t < k1["t"]:
+            e = ease(k0.get("e"), (t - k0["t"]) / max(1e-9, k1["t"] - k0["t"]))
+            a, b = hex_rgb(k0["v"]), hex_rgb(k1["v"])
+            return [x + (y - x) * e for x, y in zip(a, b)]
+    return hex_rgb(keys[-1]["v"])
+
+
+def page_at(page, anim, t):
+    """La page a l'instant t : nombres interpoles ; couleurs en composantes 0..1 dans out["rgb"]."""
+    T = (anim or {}).get("tracks") or {}
+    out = dict(page)
+    rgb = {}
+    for k in PAGE_COLORS:
+        rgb[k] = color_value(T.get(f"page.{k}"), t, page.get(k) or ("#111111" if k == "stroke" else "#ffffff"))
+    for k in PAGE_NUMS:
+        out[k] = track_value(T.get(f"page.{k}"), t, page.get(k))
+    out["rgb"] = rgb
+    return out
+
+
 def anim_end(anim):
     return max([k["t"] for keys in ((anim or {}).get("tracks") or {}).values() for k in keys or []] or [0.0])
 
@@ -249,13 +289,22 @@ def clean_anim(anim, layout, max_t=600.0):
     out = {}
     for key, keys in ((anim or {}).get("tracks") or {}).items():
         cid, _, end = str(key).rpartition(".")
-        if cid not in ids or end not in ("a", "b") or not isinstance(keys, list):
+        page = cid == "page" and (end in PAGE_COLORS or end in PAGE_NUMS)
+        if not isinstance(keys, list) or not (page or (cid in ids and end in ("a", "b"))):
             continue
         clean = {}
         for k in keys:
             try:
                 t = round(max(0.0, min(max_t, float(k["t"]))), 4)
-                v = round(max(0.0, min(1.0, float(k["v"]))), 5)
+                if page and end in PAGE_COLORS:
+                    v = str(k["v"]).lower()
+                    if not (len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdef" for c in v[1:])):
+                        continue
+                elif page:
+                    lo, hi = PAGE_NUMS[end]
+                    v = round(max(lo, min(hi, float(k["v"]))), 3)
+                else:
+                    v = round(max(0.0, min(1.0, float(k["v"]))), 5)
             except (KeyError, TypeError, ValueError):
                 continue
             clean[t] = {"t": t, "v": v, "e": k.get("e") if k.get("e") in EASES else "ease"}

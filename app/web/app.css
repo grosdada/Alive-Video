@@ -295,3 +295,20 @@ body.anim-on .page-wrap { width: min(100%, calc((100vh - var(--top) - 90px - var
 .cut.sel .cut-line { opacity: .95; }
 .cut.sel .cut-mid, .cut.sel .cut-end { opacity: 1; }
 .page-wrap.playing .overlay { display: none; }
+
+/* modes de l'editeur de planche : Edit (icones des cases) | Animate framing (timeline) */
+.modes { display: inline-flex; gap: 4px; }
+small.animated { color: var(--accent); }
+/* timeline : module « Style de page » */
+.tl-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tl-row.tl-section { min-height: 20px; background: #1d1726; }
+.tl-row.tl-section .tl-label { background: #1d1726; color: var(--accent); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.tl-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.tl-ctl input[type=color] { width: 34px; height: 20px; padding: 0 1px; border-radius: 4px; }
+.tl-ctl input[type=range] { width: 74px; }
+.tl-ctl output { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink); }
+.tl-key.col { border-radius: 2px; }
+
+/* dossier des videos exportees */
+input.folder { flex: 1; min-width: 260px; font-size: 12.5px; }
+.row.nowrap { flex-wrap: nowrap; align-items: center; }

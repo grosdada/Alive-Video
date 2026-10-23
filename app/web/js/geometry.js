@@ -27,7 +27,7 @@ export function transpose(node) {
   return { ...node, dir: node.dir === "h" ? "v" : "h", c: [transpose(node.c[0]), transpose(node.c[1])] };
 }
 
-export const PAGE_DEFAULTS = { format: "bd", orientation: "portrait", width: 1600, height: 2400, bg: "#ffffff", stroke: "#111111",
+export const PAGE_DEFAULTS = { format: "bd", orientation: "portrait", width: 1600, height: 2400, bg: "#ffffff", fill: "#ffffff", stroke: "#111111",
                                strokeWidth: 5, gutter: 22, margin: 60 };
 
 // ------------------------------------------------------------------ outils
@@ -206,6 +206,50 @@ export function layoutAt(layout, anim, t) {
   const walk = (n) => n.t === "leaf" ? n : Object.assign({}, n, {
     a: trackValue(T[n.id + ".a"], t, n.a), b: trackValue(T[n.id + ".b"], t, n.b), c: [walk(n.c[0]), walk(n.c[1])] });
   return walk(layout);
+}
+
+// style de page anime (module « Style de page » de la timeline) : pistes "page.<cle>"
+export const PAGE_TRACKS = [
+  { k: "bg", label: "Fond (autour des cases)", color: true },
+  { k: "fill", label: "Couleur des cases", color: true },
+  { k: "stroke", label: "Couleur des traits", color: true },
+  { k: "strokeWidth", label: "Épaisseur des traits", min: 0, max: 30, step: 0.5 },
+  { k: "gutter", label: "Gouttière", min: 0, max: 120, step: 1 },
+  { k: "margin", label: "Marge", min: 0, max: 400, step: 1 },
+];
+
+export function hexRgb(hex) {
+  const s = String(hex || "#ffffff").replace("#", "");
+  return [0, 2, 4].map(i => (parseInt(s.slice(i, i + 2), 16) || 0) / 255);
+}
+export function rgbHex(c) {
+  return "#" + c.map(x => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, "0")).join("");
+}
+
+// couleur a l'instant t (composantes 0..1, interpolees une a une avec la courbe de la cle)
+export function colorValue(keys, t, fallback) {
+  if (!keys || !keys.length) return hexRgb(fallback);
+  if (t <= keys[0].t) return hexRgb(keys[0].v);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k0 = keys[i], k1 = keys[i + 1];
+    if (t < k1.t) {
+      const e = ease(k0.e, (t - k0.t) / Math.max(1e-9, k1.t - k0.t)), a = hexRgb(k0.v), b = hexRgb(k1.v);
+      return a.map((x, j) => x + (b[j] - x) * e);
+    }
+  }
+  return hexRgb(keys[keys.length - 1].v);
+}
+
+// la page a l'instant t : nombres interpoles, couleurs en #rrggbb (affichage) et en composantes (rgb, calcul)
+export function pageAt(page, anim, t) {
+  const T = (anim && anim.tracks) || {}, out = Object.assign({}, page), rgb = {};
+  for (const d of PAGE_TRACKS) {
+    const keys = T["page." + d.k];
+    if (d.color) { rgb[d.k] = colorValue(keys, t, page[d.k] || (d.k === "stroke" ? "#111111" : "#ffffff")); out[d.k] = rgbHex(rgb[d.k]); }
+    else out[d.k] = trackValue(keys, t, page[d.k]);
+  }
+  out.rgb = rgb;
+  return out;
 }
 
 // fin de l'animation (derniere cle)

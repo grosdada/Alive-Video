@@ -35,5 +35,9 @@ Documentation complète, à lire en premier : `docs/ALIVE-VIDEO-DOC.html`.
 - Serveur Python stdlib + `requirements.txt` (pillow, numpy, opencv-python-headless) ; ffmpeg et ffprobe dans le PATH.
 - Interface sans compilation : `app/web` (application), `player/` (lecteur WebGL, livre, éditeur de case `alive-edit.js`).
 - Export : `app/videoexport.py` (un à la fois, en fils), images de l'original décodées une fois en fichiers bruts.
+  Dossier de sortie (`output_dir`) : `project.export.folder` (fenêtre d'export), sinon `local_settings.json` › `export.folder`
+  (Réglages), sinon `projects/<id>/video/` ; les calculs restent dans `projects/<id>/video/_tmp-*`. Historique des
+  fichiers dans `project.exported` (servis par `GET /api/projects/<id>/video/file?name=`). « Parcourir » =
+  `POST /api/pickfolder` : fenêtre du système ouverte sur le poste qui fait tourner le serveur.
 - Écrire les gros correctifs dans un script Python (fichier) plutôt qu'en heredoc bash : les `\n` y sont mangés.
 - Capture du lecteur dans le volet caché du navigateur : remplacer `requestAnimationFrame` par un `MessageChannel`.

@@ -63,7 +63,7 @@ export class Editor {
   render(light) {                  // light : sans les barres d'outils des cases (lecture de l'animation)
     const P = this.project;
     if (!P) return;
-    const pg = P.page;
+    const pg = this.app.viewPage();                          // style de page anime compris
     this.geom = compute(pg, this.app.viewLayout());          // cadrage anime : la page a l'instant affiche
     this.wrap.style.aspectRatio = `${pg.width} / ${pg.height}`;
     this.wrap.style.setProperty("--ratio", pg.width / pg.height);
@@ -80,7 +80,7 @@ export class Editor {
       defs.append(cp);
       const grp = s("g", { "clip-path": `url(#cp-${g.id})` });
       const pic = media(panel);
-      grp.append(s("polygon", { points: pts(g.poly), fill: pic ? "#fff" : "var(--empty)" }));
+      grp.append(s("polygon", { points: pts(g.poly), fill: pg.fill || "#ffffff" }));
       if (pic) {
         // on garde les elements <image> d'un rendu a l'autre : pas de clignotement pendant les glisser
         const pl = placement(g.bbox, pic.w, pic.h, panel.view);
@@ -128,6 +128,7 @@ export class Editor {
   renderOverlay() {
     const P = this.project, pg = P.page;
     this.overlay.textContent = "";
+    if (!this.app.showTools()) return;                     // icones des cases : seulement en mode Edit
     for (const g of this.geom.panels) {
       const panel = P.panels[g.id] || {};
       const st = this.app.panelStatus(g.id);

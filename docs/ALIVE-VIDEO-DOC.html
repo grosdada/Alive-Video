@@ -209,7 +209,7 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
               proxies/&lt;nom&gt;.mp4      copie de lecture ; &lt;nom&gt;.jpg affiche ; &lt;nom&gt;.rev.mp4 copie à l'envers
               page/                  page.jpg (fond, cases, affiches, traits), frames.png (traits), thumb.jpg
               export/                la page jouable : index.html, book.js, manga_data.js, videos/, images/, sons/, grain.png
-              video/                 les exports MP4 (un fichier par export, jamais effacés)
+              video/                 les exports MP4 par défaut (un fichier par export, jamais effacés) ; calculs en cours
               compare/               dernier contrôle lecteur / export (lecteur.png, export.png, ecart-x8.png)</code></pre>
 </section>
 
@@ -227,9 +227,10 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
   <p>Au niveau de la planche : <code>name</code>, <code>page</code> (format, sens, taille, fond, traits, gouttière, marge),
     <code>layout</code> (arbre de découpes, chaque trait avec son <code>id</code>), <code>anim</code> (cadrage animé, § 7 bis),
     <code>geometry</code> (cases calculées, page finie), <code>pageSound</code> (musique),
-    <code>export {duration (null = auto), height, fps}</code>, <code>published</code>, <code>rev</code>.</p>
+    <code>export {duration (null = auto), height, fps, folder ("" = par défaut)}</code>, <code>exported</code> (les 30
+    derniers fichiers exportés, où qu'ils soient), <code>published</code>, <code>rev</code>.</p>
   <div class="note"><p>Qui écrit quoi : l'application garde la main sur le découpage, les médias et le cadrage ; le serveur et
-    l'aperçu sur <code>edit</code>, <code>extraSounds</code>, <code>review</code>, <code>export</code> et <code>published</code>
+    l'aperçu sur <code>edit</code>, <code>extraSounds</code>, <code>review</code>, <code>export</code>, <code>exported</code> et <code>published</code>
     (un enregistrement de la planche ne les remplace jamais, sauf pour une case nouvelle, qui garde ce que l'application y a
     recopié en changeant de découpage).</p></div>
   <h3>Ce que reçoit le lecteur (manga_data.js)</h3>
@@ -256,8 +257,11 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
         résumé de la pile), sons ajoutés.</li>
     </div>
   </div>
-  <p>Barre du haut : <b>Exporter la vidéo</b>, Aperçu, ✏️ Éditer (aperçu en mode édition), 📁 Dossier, Publier, ⚙ Réglages
-    (publication). Réglages de page (rien de sélectionné) : format, couleurs, traits, musique de la page, résumé de l'export.</p>
+  <p>Barre du haut : les deux modes <b>✏️ Edit</b> (les icônes de chaque case : numéro, média, filtres, sons ; hors de ce
+    mode la planche est nette) et <b>🎞 Animate framing</b> (§ 7 bis, icônes cachées), <b>Exporter la vidéo</b>, Aperçu,
+    🎚 Retouches (aperçu avec l'éditeur de case), 📁 Dossier, Publier, ⚙ Réglages (dossier des vidéos exportées,
+    publication). Réglages de page (rien de sélectionné) : format, couleurs (fond, cases, traits), épaisseur, gouttière,
+    marge — un réglage animé porte « 🎞 animé » et se règle dans la timeline —, musique de la page, résumé de l'export.</p>
 </section>
 
 <section id="videos">
@@ -326,10 +330,16 @@ image = b - k si à l'envers, sinon a + k</code></pre>
       animation. Un nouveau découpage retire l'animation (Ctrl+Z la rend).</li>
     <li>La vidéo d'une case suit sa case : elle la remplit toujours (couverture × zoom du cadrage), recadrée à chaque instant.</li>
     <li>Durée automatique de la page : au moins la fin de l'animation + 1 s.</li>
+    <li><b>🎨 Style de page</b> (bouton de la timeline, allumé ou éteint, retenu par le navigateur) : six lignes de plus,
+      fond, couleur des cases, couleur des traits, épaisseur des traits, gouttière, marge. Chaque ligne a son réglage
+      (couleur ou curseur) qui pose une clé à la tête de lecture ; les couleurs passent de l'une à l'autre composante par
+      composante (R, V, B). « Effacer la ligne » garde la valeur du moment.</li>
   </ul>
   <p>Données : chaque trait (<code>split</code> de <code>layout</code>) a un <code>id</code> (c1, c2…) ;
     <code>project.anim = {tracks: {"c2.a": [{t, v, e}]}}</code> (t en secondes, v de 0 à 1 comme <code>a</code> / <code>b</code>,
-    e = courbe). Interpolation identique dans <code>app/web/js/geometry.js</code> (éditeur), <code>player/alive-player.js</code>
+    e = courbe) ; style de page : pistes <code>"page.bg"</code>, <code>"page.fill"</code>, <code>"page.stroke"</code>
+    (v = couleur <code>#rrggbb</code>), <code>"page.strokeWidth"</code>, <code>"page.gutter"</code>, <code>"page.margin"</code>
+    (v = valeur de la page). Interpolation identique dans <code>app/web/js/geometry.js</code> (éditeur), <code>player/alive-player.js</code>
     (lecteur : la page entière, fond, cases vides et traits compris, est alors dessinée par le canevas) et
     <code>app/geometry.py</code> (export : cases recalculées à chaque image, sources décodées entières puis lues au placement
     du moment). Contrôle lecteur / export sur une page animée : 1 à 2,4 / 255 d'écart moyen, traits au même pixel.</p>
@@ -392,9 +402,13 @@ image = b - k si à l'envers, sinon a + k</code></pre>
     <li><b>Son</b><div><p>Piste de chaque vidéo (début / fin, envers, <code>atempo</code> pour la vitesse, volume, en boucle ou
       une fois puis silence), sons ajoutés et musique de la page (les fichiers égalisés du lecteur), mélangés sans
       normalisation, limiteur à −0,2 dB, AAC 192 kb/s.</p></div></li>
-    <li><b>Fichier</b><div><p><code>projects/&lt;id&gt;/video/&lt;nom&gt;-&lt;date&gt;.mp4</code> (H.264 + AAC, faststart). Un
+    <li><b>Fichier</b><div><p><code>&lt;dossier&gt;/&lt;nom&gt;-&lt;date&gt;.mp4</code> (H.264 + AAC, faststart). Le dossier :
+      celui choisi dans la fenêtre d'export (« 📁 Parcourir… », gardé pour la planche), sinon celui de ⚙ Réglages ›
+      Vidéos exportées, sinon <code>projects/&lt;id&gt;/video/</code> ; il est créé s'il manque. « Parcourir » ouvre la
+      fenêtre « choisir un dossier » du système sur le poste qui fait tourner le serveur (Windows : tkinter, Mac :
+      osascript) ; sans fenêtre possible, le chemin se tape. Les calculs restent dans le dossier de la planche. Un
       export à la fois, suivi dans la fenêtre (avancement, temps restant) et par une pastille à l'accueil. Les exports ne
-      sont jamais effacés.</p></div></li>
+      sont jamais effacés ; la planche garde la liste des 30 derniers (« Vidéos déjà exportées »).</p></div></li>
   </ol>
 </section>
 
@@ -402,7 +416,9 @@ image = b - k si à l'envers, sinon a + k</code></pre>
   <div class="sec-head"><p class="eyebrow">11 · Même résultat</p><h2>Contrôle lecteur / export</h2></div>
   <p>Le lecteur capture la page à un instant donné, à la taille de l'export (<code>AlivePlayer.capture</code> : vidéos
     calées sur l'image exacte), le serveur calcule la même image et donne l'écart par case, loin des traits
-    (<code>POST /api/projects/&lt;id&gt;/compare?t=…</code>, images dans <code>compare/</code>). Dans la console de l'aperçu :</p>
+    (<code>POST /api/projects/&lt;id&gt;/compare?t=…</code>, images dans <code>compare/</code>). La capture attend que les
+    vidéos, les images et le bruit du grain soient chargés. Choisir t sur une image de l'export (t × fps entier) : sinon
+    l'export montre l'image d'avant et la réponse le signale (<code>warning</code>). Dans la console de l'aperçu :</p>
   <pre><code>const inst = [...AlivePlayer._pages][0], [PW, PH] = inst.data.size, k = 1080 / Math.min(PW, PH);
 const ev = (x) => Math.max(2, Math.round(x / 2) * 2);
 const cv = await AlivePlayer.capture(inst, 2.0, ev(PW * k), ev(PH * k));

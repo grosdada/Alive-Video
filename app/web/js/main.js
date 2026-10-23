@@ -1,7 +1,7 @@
 // Alive-Video : application (etat, projets, edition des planches, videos dans les cases, export video, livres).
 import { get, post, put, upload, uploadSound, h, toast, debounce, modal } from "./api.js";
 import { compute, PRESETS, PAGE_DEFAULTS, FORMATS, pageSize, transpose, randomLayout, removeLeaf, splitLeaf, leaves,
-         layoutAt, ensureCutIds, animEnd, cutIdsOf } from "./geometry.js";
+         layoutAt, ensureCutIds, animEnd, cutIdsOf, pageAt } from "./geometry.js";
 import { Timeline } from "./timeline.js";
 import { Editor, icon, media } from "./editor.js";
 import { pageImages } from "./exporter.js";
@@ -21,6 +21,7 @@ class App {
     this.pageSoon = debounce(() => this.uploadPage(), 2500);
     this.commitSoon = debounce((k) => this.commit(k), 350);
     this.editSoon = new Map();
+    this.editMode = pref("av-edit", "0") === "1";   // mode Edit : les icones des cases ; sinon la planche nette
     this.animMode = false;          // « Animate framing » : timeline ouverte, les attaches posent des cles
     this.animT = 0;
     this.animPlaying = false;
@@ -428,10 +429,14 @@ class App {
       bar.append(name,
         h("button.icon", { title: "Annuler (Ctrl+Z)", on: { click: () => this.doUndo() } }, "↶"),
         h("button.icon", { title: "Rétablir (Ctrl+Y)", on: { click: () => this.doRedo() } }, "↷"));
+      // deux modes : Edit (icones des cases) et Animate framing (timeline) ; aucun des deux : la planche nette
+      this.editBtn = h("button.animbtn" + (this.editMode && !this.animMode ? ".on" : ""), {
+        title: "Mode Edit : les icônes de chaque case (média, filtres, sons) et leurs étiquettes",
+        on: { click: () => this.setEditMode(!(this.editMode && !this.animMode)) } }, "✏️ Edit");
       this.animBtn = h("button.animbtn" + (this.animMode ? ".on" : ""), {
         title: "Animer le cadrage : une timeline s'ouvre, chaque attache des traits a sa ligne ; glisser une attache pose une clé",
         on: { click: () => this.setAnimMode(!this.animMode) } }, "🎞 Animate framing");
-      bar.append(this.animBtn);
+      bar.append(h("span.modes", this.editBtn, this.animBtn));
     }
     this.exportChip = h("span.calc.top-calc");
     bar.append(h("span.sp"), this.exportChip);
@@ -439,8 +444,8 @@ class App {
       bar.append(
         h("button.primary", { on: { click: () => this.exportDialog() } }, icon("video"), " Exporter la vidéo"),
         h("button", { on: { click: () => this.preview() } }, "Aperçu"),
-        h("button", { title: "Aperçu en mode édition : lecture, couleur, cadrage, filtres, sons de chaque case",
-                      on: { click: () => this.preview(true) } }, "✏️ Éditer"),
+        h("button", { title: "Aperçu avec l'éditeur de case : lecture, couleur, cadrage, filtres, sons de chaque case",
+                      on: { click: () => this.preview(true) } }, "🎚 Retouches"),
         h("button", { title: "Ouvrir le dossier de la page (index.html, vidéos, sons)", on: { click: () => this.revealFolder() } }, "📁 Dossier"),
         h("button", { on: { click: () => this.publishDialog() } }, "Publier"));
     }
@@ -534,7 +539,7 @@ class App {
     this.right.textContent = "";
     if (!id) {
       this.right.append(h("h3", "Page"), pageForm(this),
-        h("p.muted", "Astuce : glisse une vidéo directement sur une case. Chaque case a ses icônes : média, filtres, sons."));
+        h("p.muted", "Astuce : glisse une vidéo directement sur une case. En mode ✏️ Edit, chaque case montre ses icônes (média, filtres, sons) ; 🎞 Animate framing anime les traits et le style de page."));
       return;
     }
     const g = this.editor.geom.panels.find(x => x.id === id);
@@ -692,8 +697,8 @@ class App {
 
   // la page finie : le decoupage a la fin de l'animation du cadrage (le decoupage tout court s'il n'y en a pas)
   finalGeom() {
-    const P = this.project;
-    return compute(P.page, layoutAt(P.layout, P.anim, animEnd(P.anim)));
+    const P = this.project, t = animEnd(P.anim);
+    return compute(pageAt(P.page, P.anim, t), layoutAt(P.layout, P.anim, t));
   }
 
   geometryForSave() {
@@ -743,7 +748,7 @@ class App {
   async uploadPage(strict) {
     if (!this.project) return;
     const sig = this.pageSig();
-    try { await pageImages(this.project, this.finalGeom()); this._pageSig = sig; }
+    try { await pageImages(this.project, this.finalGeom(), pageAt(this.project.page, this.project.anim, animEnd(this.project.anim))); this._pageSig = sig; }
     catch (e) { if (strict) throw e; console.warn(e); }
   }
 
@@ -827,6 +832,22 @@ class App {
     res.value = s.height;
     const fps = h("select", this.presets.export.fps.map(x => h("option", { value: x }, `${x} images/s`)));
     fps.value = s.fps;
+    // ou enregistrer : le dossier choisi pour cette planche, sinon celui des Reglages, sinon le dossier de la planche
+    let folder = info.folder || "";
+    const folderTxt = h("input.folder", { title: "Dossier où la vidéo sera enregistrée (on peut aussi y coller un chemin)" });
+    const folderHint = h("small.muted");
+    const reset = h("button.mini", { title: "Revenir au dossier par défaut", on: { click: () => { folder = ""; paintFolder(); } } }, "↺ par défaut");
+    const paintFolder = () => {
+      folderTxt.value = folder || info.default_folder || info.project_folder;
+      folderHint.textContent = folder ? "choisi pour cette planche" : info.default_folder ? "dossier par défaut (Réglages)" : "dossier de la planche (par défaut)";
+      reset.style.display = folder ? "" : "none";
+    };
+    folderTxt.addEventListener("change", () => { const v = folderTxt.value.trim(); folder = v && v !== info.default_folder && v !== info.project_folder ? v : ""; paintFolder(); });
+    const browse = h("button", { on: { click: async () => {
+      const f2 = await this.chooseFolder(folderTxt.value);
+      if (f2) { folder = f2 === info.default_folder || f2 === info.project_folder ? "" : f2; paintFolder(); }
+    } } }, "📁 Parcourir…");
+    paintFolder();
     const bar = h("div.pbar2", h("i"));
     const msg = h("p.muted", "");
     const done = h("div.form");
@@ -834,7 +855,7 @@ class App {
     const paintList = (videos) => {
       list.textContent = "";
       for (const v of videos.slice(0, 6)) {
-        list.append(h("div.vrow", h("a", { href: v.url, target: "_blank" }, v.name),
+        list.append(h("div.vrow", h("a", { href: v.url, target: "_blank", title: v.folder }, v.name),
           h("small.muted", `${Math.round(v.size / 1e5) / 10} Mo · ${new Date(v.time * 1000).toLocaleString("fr-FR")}`)));
       }
     };
@@ -858,7 +879,8 @@ class App {
           if (t.status === "done") {
             done.textContent = "";
             const m = t.meta || {};
-            done.append(h("p", "✓ Vidéo prête : ", h("a", { href: t.url, target: "_blank" }, t.url.split("/").pop())),
+            done.append(h("p", "✓ Vidéo prête : ", h("a", { href: t.url, target: "_blank", title: t.file }, t.url.split("=").pop())),
+              h("p.muted", "Dans " + (t.folder || "")),
               h("p.muted", `${m.width} × ${m.height}, ${m.fps} images/s, ${fmtSec(m.seconds)}${m.audio ? ", avec le son" : ", sans son"}.`),
               h("div.row", h("button", { on: { click: () => window.open(t.url, "_blank") } }, "▶ Ouvrir la vidéo"),
                 h("button", { on: { click: () => post(`projects/${P.id}/video/reveal`).catch((e) => toast(e.message, "error")) } }, "📁 Dossier des vidéos")));
@@ -871,9 +893,9 @@ class App {
       done.textContent = "";
       try {
         await this.flushAll();
-        const body = { duration: auto.checked ? null : +dur.value, height: +res.value, fps: +fps.value };
+        const body = { duration: auto.checked ? null : +dur.value, height: +res.value, fps: +fps.value, folder };
         await post(`projects/${P.id}/video`, body);
-        P.export = { duration: body.duration, height: body.height, fps: body.fps };
+        P.export = { duration: body.duration, height: body.height, fps: body.fps, folder };
         msg.textContent = "en file…";
         watch();
       } catch (e) { go.disabled = false; toast(e.message, "error", 9000); }
@@ -885,6 +907,7 @@ class App {
         h("label.field", h("span.lab", "Durée"), h("div.row", h("label.check", auto, ` auto (${fmtSec(info.auto)} : le plus long passage)`), dur, h("span.muted", "s"))),
         h("label.field", h("span.lab", "Résolution"), res),
         h("label.field", h("span.lab", "Fréquence"), fps)),
+      h("label.field", h("span.lab", "Enregistrer dans ", folderHint), h("div.row.nowrap", folderTxt, browse, reset)),
       h("div.row", go), bar, msg, done,
       h("span.lab", "Vidéos déjà exportées"), list), [{ label: "Fermer" }]);
   }
@@ -919,7 +942,15 @@ class App {
     const D = S.deploy;
     const inp = (k, ph) => { const e = h("input", { value: D[k] ?? "", placeholder: ph }); e.addEventListener("input", () => { D[k] = k === "port" ? +e.value : e.value; }); return e; };
     const keyBox = h("pre.key", "…");
+    S.export = S.export || { folder: "" };
+    const exDir = h("input.folder", { value: S.export.folder || "", placeholder: "dossier video/ de chaque planche (par défaut)" });
+    exDir.addEventListener("input", () => { S.export.folder = exDir.value.trim(); });
     const body = h("div.form",
+      h("h4", "Vidéos exportées"),
+      h("label.field", h("span.lab", "Dossier par défaut (vide : le dossier video/ de chaque planche ; chaque export peut en choisir un autre)"),
+        h("div.row.nowrap", exDir,
+          h("button", { on: { click: async () => { const f2 = await this.chooseFolder(exDir.value); if (f2) { exDir.value = f2; S.export.folder = f2; } } } }, "📁 Parcourir…"),
+          h("button.mini", { on: { click: () => { exDir.value = ""; S.export.folder = ""; } } }, "↺ par défaut"))),
       h("h4", "Publication (hébergement SSH)"),
       h("label.field", h("span.lab", "Adresse du site"), inp("url", "https://…")),
       h("div.row", h("label.field", h("span.lab", "Hôte SSH"), inp("host", "46.202.158.181")), h("label.field", h("span.lab", "Port"), inp("port", "65002")),
@@ -939,6 +970,18 @@ class App {
       { label: "Enregistrer", primary: true, click: async () => {
         this.settings = await put("settings", S); this.info = await get("info"); toast("Réglages enregistrés.", "ok");
       } }]);
+  }
+
+  // fenetre « choisir un dossier » du systeme (ouverte par le serveur, sur ce poste) ; sinon le chemin se tape
+  async chooseFolder(initial) {
+    try {
+      const r = await post("pickfolder", { initial: initial || "" });
+      return r.folder || "";
+    } catch (e) {
+      if (!e.data?.nopicker) { toast(e.message, "error"); return ""; }
+      const v = prompt("Chemin complet du dossier :", initial || "");
+      return (v || "").trim();
+    }
   }
 
   pickPageSound() {
@@ -970,6 +1013,28 @@ Object.assign(App.prototype, {
   viewLayout() {
     const P = this.project;
     return layoutAt(P.layout, P.anim, this.animMode ? this.animT : animEnd(P.anim));
+  },
+
+  // la page montree : son style (fond, cases, traits, gouttiere, marge) au meme instant
+  viewPage() {
+    const P = this.project;
+    return pageAt(P.page, P.anim, this.animMode ? this.animT : animEnd(P.anim));
+  },
+
+  // icones des cases : seulement en mode Edit (jamais pendant l'animation du cadrage)
+  showTools() { return this.editMode && !this.animMode; },
+
+  setEditMode(on) {
+    if (on && this.animMode) this.setAnimMode(false);
+    this.editMode = !!on;
+    setPref("av-edit", this.editMode ? "1" : "0");
+    this.paintModes();
+    this.editor.render();
+  },
+
+  paintModes() {
+    this.editBtn?.classList.toggle("on", this.editMode && !this.animMode);
+    this.animBtn?.classList.toggle("on", this.animMode);
   },
 
   // duree de la page (meme regle que app/videoexport.py auto_duration)
@@ -1008,7 +1073,7 @@ Object.assign(App.prototype, {
       this.selectedCut = null;
     }
     document.body.classList.toggle("anim-on", this.animMode);
-    this.animBtn?.classList.toggle("on", this.animMode);
+    this.paintModes();
     this.editor.render();
   },
 
@@ -1097,6 +1162,7 @@ Object.assign(App.prototype, {
     const P = this.project;
     if (!P.anim || !P.anim.tracks) { P.anim = { tracks: {} }; return; }
     const ids = new Set(cutIdsOf(P.layout));
+    ids.add("page");                                       // style de page anime
     for (const k of Object.keys(P.anim.tracks)) {
       if (!ids.has(k.split(".")[0]) || !(P.anim.tracks[k] || []).length) delete P.anim.tracks[k];
     }
@@ -1106,6 +1172,7 @@ Object.assign(App.prototype, {
     this.cleanAnim();
     this.timeline?.render();
     this.editor.render();
+    if (!this.selected) this.refreshInspector();          // reglages de page : badges « animé »
     this.commit("anim");
   },
 

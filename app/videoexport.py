@@ -205,8 +205,9 @@ class Panel:
         self.src = None                      # images decodees (memmap) ou image fixe
         self.first = 0
 
-    def geom(self, g):
-        return Geom(g, self.mw, self.mh, self.view, self.page, self.kx, self.ky, self.W, self.H, self.stroke)
+    def geom(self, g, stroke=None):
+        return Geom(g, self.mw, self.mh, self.view, self.page, self.kx, self.ky, self.W, self.H,
+                    self.stroke if stroke is None else stroke)
 
     def load(self, d, tmp, one=None):
         cx, cy, cw, ch = self.crop
@@ -293,15 +294,15 @@ def _strokes(polys, kx, ky, W, H, stroke, color):
     return flat, (smask.reshape(-1)[flat].astype(np.float32) / 255)[:, None], color
 
 
-def _paint_white(img, poly, kx, ky, W, H):
-    """Case vide : papier blanc (comme l'image de la page)."""
+def _paint(img, poly, kx, ky, W, H, color):
+    """Case vide : la couleur des cases (comme l'image de la page)."""
     box = _box(poly, kx, ky, W, H)
     X0, Y0, X1, Y1 = box
     if X1 <= X0 or Y1 <= Y0:
         return
     m = (_mask(poly, kx, ky, box).astype(np.float32) / 255)[..., None]
     reg = img[Y0:Y1, X0:X1].astype(np.float32)
-    img[Y0:Y1, X0:X1] = np.rint(reg + (255 - reg) * m).astype(np.uint8)
+    img[Y0:Y1, X0:X1] = np.rint(reg + (np.asarray(color, np.float32) * 255 - reg) * m).astype(np.uint8)
 
 
 def prepare(pid, s, tmp, still=None, log=print):
@@ -323,6 +324,7 @@ def prepare(pid, s, tmp, still=None, log=print):
     stroke = float(page.get("strokeWidth") or 0)
     bg = _hex(page.get("bg"), "#ffffff")
     color = _hex(page.get("stroke"), "#111111")
+    fill = _hex(page.get("fill"), "#ffffff")
     layout = p.get("layout") or {}
     anim = G.clean_anim(p.get("anim"), layout)
     panels_by_id = p.get("panels") or {}
@@ -336,7 +338,7 @@ def prepare(pid, s, tmp, still=None, log=print):
         times = [still] if still is not None else [i / fps for i in range(max(1, int(round(s["seconds"] * fps))))]
         biggest = {}
         for t in times:
-            for g in G.compute(page, G.layout_at(layout, anim, t)):
+            for g in G.compute(G.page_at(page, anim, t), G.layout_at(layout, anim, t)):
                 panel = panels_by_id.get(g["id"]) or {}
                 if not has_media(panel):
                     continue
@@ -352,7 +354,7 @@ def prepare(pid, s, tmp, still=None, log=print):
         for g in geo["panels"]:
             panel = panels_by_id.get(g["id"]) or {}
             if not has_media(panel):
-                _paint_white(base, g["poly"], kx, ky, W, H)
+                _paint(base, g["poly"], kx, ky, W, H, fill)
                 continue
             panels.append(Panel(pid, d, g, panel, page, kx, ky, W, H, unit, stroke))
         stroke_px = _strokes([g["poly"] for g in geo["panels"]], kx, ky, W, H, stroke, color)
@@ -364,12 +366,14 @@ def prepare(pid, s, tmp, still=None, log=print):
     with ThreadPoolExecutor(max_workers=max(1, min(4, os.cpu_count() or 2))) as ex:
         list(ex.map(load, panels))
     return {"p": p, "d": d, "W": W, "H": H, "base": base, "bg": bg, "panels": panels, "stroke": stroke_px,
-            "page": page, "layout": layout, "anim": anim, "kx": kx, "ky": ky, "stroke_w": stroke, "color": color}
+            "page": page, "layout": layout, "anim": anim, "kx": kx, "ky": ky, "stroke_w": stroke, "color": color,
+            "fill": fill}
 
 
 def frame_geometry(P, t):
-    """Page au cadrage anime : les cases a l'instant t ({id: case calculee})."""
-    return {g["id"]: g for g in G.compute(P["page"], G.layout_at(P["layout"], P["anim"], t))}
+    """Page animee a l'instant t : ({id: case calculee}, la page a cet instant : style anime compris)."""
+    pg = G.page_at(P["page"], P["anim"], t)
+    return {g["id"]: g for g in G.compute(pg, G.layout_at(P["layout"], P["anim"], t))}, pg
 
 
 def render(P, n, fps, keep=None):
@@ -377,18 +381,21 @@ def render(P, n, fps, keep=None):
     t = n / fps
     out = P["base"].copy()
     if P["anim"]:
-        geo = frame_geometry(P, t)
+        geo, pg = frame_geometry(P, t)
+        rgb = {k: np.array(v, np.float32) for k, v in pg["rgb"].items()}
+        sw = max(0.0, float(pg.get("strokeWidth") or 0))
+        out[:] = np.rint(rgb["bg"] * 255).astype(np.uint8)          # fond de l'instant
         ids = {pn.id for pn in P["panels"]}
         for g in geo.values():
             if g["id"] not in ids:
-                _paint_white(out, g["poly"], P["kx"], P["ky"], P["W"], P["H"])
+                _paint(out, g["poly"], P["kx"], P["ky"], P["W"], P["H"], rgb["fill"])
         for pn in P["panels"]:
             g = geo.get(pn.id)
             if g is None:                                  # case refermee a cet instant
                 continue
-            Gm = pn.geom(g)
-            pn.compose(out, pn.frame_at(t, n, Gm), P["bg"], Gm)
-        strokes = _strokes([g["poly"] for g in geo.values()], P["kx"], P["ky"], P["W"], P["H"], P["stroke_w"], P["color"])
+            Gm = pn.geom(g, sw)
+            pn.compose(out, pn.frame_at(t, n, Gm), rgb["bg"], Gm)
+        strokes = _strokes([g["poly"] for g in geo.values()], P["kx"], P["ky"], P["W"], P["H"], sw, rgb["stroke"])
     else:
         for pn in P["panels"]:
             pn.compose(out, pn.frame_at(t, n, pn.G), P["bg"], pn.G)
@@ -450,11 +457,11 @@ def compare(pid, png, t):
         stroke = cv2.dilate(stroke.reshape(H, W), np.ones((7, 7), np.uint8))
         diff = np.abs(cap.astype(np.int16) - exp.astype(np.int16)).astype(np.uint8)
         stats = []
-        geo = frame_geometry(P, n / s["fps"]) if P["anim"] else {}
+        geo, pg = frame_geometry(P, n / s["fps"]) if P["anim"] else ({}, None)
         for pn in P["panels"]:
             if P["anim"] and pn.id not in geo:
                 continue
-            Gm = pn.geom(geo[pn.id]) if P["anim"] else pn.G
+            Gm = pn.geom(geo[pn.id], max(0.0, float(pg.get("strokeWidth") or 0))) if P["anim"] else pn.G
             X0, Y0, X1, Y1 = Gm.box
             zone = (Gm.mask[..., 0] > 0.99) & (stroke[Y0:Y1, X0:X1] == 0)
             d = diff[Y0:Y1, X0:X1][zone]
@@ -468,7 +475,10 @@ def compare(pid, png, t):
         Image.fromarray(cap).save(out / "lecteur.png")
         Image.fromarray(exp).save(out / "export.png")
         Image.fromarray(np.clip(diff.astype(np.int32) * 8, 0, 255).astype(np.uint8)).save(out / "ecart-x8.png")
-        return {"t": t, "size": [W, H], "panels": stats, "folder": str(out)}
+        res = {"t": n / s["fps"], "size": [W, H], "panels": stats, "folder": str(out)}
+        if abs(n / s["fps"] - t) > 1e-6:                 # entre deux images : l'export montre l'image n, pas t
+            res["warning"] = f"t={t} tombe entre deux images a {s['fps']} im/s : capturer a t={n / s['fps']:g}"
+        return res
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -537,13 +547,61 @@ def build_audio(P, s, tmp, export_dir, log=print):
     return out
 
 
+# ------------------------------------------------------------------ dossier des exports
+def chosen_folder(p):
+    """Dossier choisi pour une planche : le sien (fenetre d'export), sinon celui des Reglages ; "" = par defaut."""
+    from . import settings
+    return ((p.get("export") or {}).get("folder") or settings.load().get("export", {}).get("folder") or "").strip()
+
+
+def output_dir(pid, p=None):
+    """Ou va la video exportee : le dossier choisi (cree s'il manque), sinon projects/<planche>/video/."""
+    folder = chosen_folder(p or store.get(pid))
+    if folder:
+        d = Path(os.path.expanduser(folder))
+        if not d.is_absolute():
+            raise ValueError(f"dossier d'export : chemin complet attendu ({folder})")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    d = store.pdir(pid) / "video"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def pick_folder(initial=""):
+    """Fenetre « choisir un dossier » du systeme, sur le poste du serveur. -> chemin, ou "" si annule."""
+    import subprocess as sp
+    import sys
+    initial = initial if initial and Path(os.path.expanduser(initial)).is_dir() else str(Path.home())
+    if sys.platform == "darwin":
+        r = sp.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "Dossier des vidéos exportées" '
+                                       f'default location (POSIX file "{initial}"))'], capture_output=True, text=True)
+        return r.stdout.strip().rstrip("/") if r.returncode == 0 else ""
+    with _pick_lock:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        try:
+            path = filedialog.askdirectory(parent=root, initialdir=initial, title="Dossier des vidéos exportées",
+                                           mustexist=False)
+        finally:
+            root.destroy()
+        return str(Path(path)) if path else ""
+
+
+_pick_lock = threading.Lock()
+
+
 # ------------------------------------------------------------------ export complet
 def export(pid, s, progress=lambda f, m="": None, log=print):
     from . import assemble
     d = store.pdir(pid)
-    outdir = d / "video"
-    outdir.mkdir(exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix="_tmp-", dir=outdir))
+    outdir = output_dir(pid)
+    work = d / "video"                                    # calculs toujours sur le disque de la planche
+    work.mkdir(exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="_tmp-", dir=work))
     try:
         progress(0.01, "préparation de la page")
         assemble.build(pid)                               # sons egalises (les memes que le lecteur)
@@ -603,7 +661,13 @@ def export(pid, s, progress=lambda f, m="": None, log=print):
         else:
             shutil.move(str(vid), str(final))
         progress(1.0, "terminé")
-        return final, {"width": W, "height": H, "fps": fps, "seconds": D, "frames": N, "audio": bool(aud)}
+        meta = {"width": W, "height": H, "fps": fps, "seconds": D, "frames": N, "audio": bool(aud)}
+
+        def remember(pp):                                 # historique des exports (ou qu'ils soient)
+            pp["exported"] = ([dict(meta, file=str(final), time=time.time(), size=final.stat().st_size)]
+                              + [x for x in pp.get("exported") or [] if x.get("file") != str(final)])[:30]
+        store.mutate(pid, remember)
+        return final, meta
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -627,8 +691,8 @@ def _run():
             task.update(progress=round(f, 4), message=m)
         try:
             final, meta = export(pid, task["settings"], prog)
-            task.update(status="done", finished=time.time(), file=f"video/{final.name}",
-                        url=f"/projects/{pid}/video/{final.name}", meta=meta, progress=1.0, message="terminé")
+            task.update(status="done", finished=time.time(), file=str(final), folder=str(final.parent),
+                        url=f"/api/projects/{pid}/video/file?name={final.name}", meta=meta, progress=1.0, message="terminé")
         except Exception as e:                       # noqa: BLE001
             traceback.print_exc()
             task.update(status="error", finished=time.time(), error=str(e)[-800:], message="erreur")
@@ -660,12 +724,31 @@ def active():
     return [dict(t) for t in _tasks.values() if t["status"] in ("queued", "running")]
 
 
-def list_videos(pid):
+def exported_files(pid):
+    """Videos exportees de la planche, les plus recentes d'abord : l'historique (tous dossiers) et projects/<id>/video/."""
+    p = store.get(pid)
+    files = [Path(x["file"]) for x in p.get("exported") or [] if x.get("file")]
     d = store.pdir(pid) / "video"
-    if not d.exists():
-        return []
-    out = []
-    for f in sorted(d.glob("*.mp4"), key=lambda f: -f.stat().st_mtime):
-        out.append({"name": f.name, "url": f"/projects/{pid}/video/{f.name}", "size": f.stat().st_size,
-                    "time": f.stat().st_mtime})
-    return out
+    if d.exists():
+        files += list(d.glob("*.mp4"))
+    seen, out = set(), []
+    for f in files:
+        k = os.path.normcase(str(f))
+        if k in seen or not f.is_file():
+            continue
+        seen.add(k)
+        out.append(f)
+    return sorted(out, key=lambda f: -f.stat().st_mtime)
+
+
+def list_videos(pid):
+    return [{"name": f.name, "url": f"/api/projects/{pid}/video/file?name={f.name}", "size": f.stat().st_size,
+             "time": f.stat().st_mtime, "folder": str(f.parent)} for f in exported_files(pid)]
+
+
+def video_file(pid, name):
+    """Une video exportee de la planche, par son nom (seulement celles de son historique)."""
+    for f in exported_files(pid):
+        if f.name == name:
+            return f
+    raise FileNotFoundError(name)

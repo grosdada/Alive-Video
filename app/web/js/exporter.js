@@ -30,15 +30,15 @@ function polyPath(ctx, poly) {
 }
 
 // page.jpg (fond, images, traits), frames.png (traits seuls), thumb.jpg
-export async function pageImages(project, geom) {
-  const pg = project.page;
+export async function pageImages(project, geom, page) {
+  const pg = page || project.page;                     // page animee : son style a la fin de l'animation
   const cv = Object.assign(document.createElement("canvas"), { width: pg.width, height: pg.height });
   const ctx = cv.getContext("2d");
   ctx.fillStyle = pg.bg; ctx.fillRect(0, 0, pg.width, pg.height);
   for (const g of geom.panels) {
     const pic = media(project.panels[g.id]);
     ctx.save(); polyPath(ctx, g.poly); ctx.clip();
-    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.fillStyle = pg.fill || "#ffffff"; ctx.fill();                  // couleur des cases
     if (pic) {
       const im = await img(pic.url);
       const pl = placement(g.bbox, pic.w, pic.h, project.panels[g.id].view);

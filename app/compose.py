@@ -52,7 +52,7 @@ def compose(pid, panels_only=None):
         bb, poly = g["bbox"], [tuple(pt) for pt in g["poly"]]
         mask = Image.new("L", (W, H), 0)
         ImageDraw.Draw(mask).polygon(poly, fill=255)
-        layer = Image.new("RGB", (W, H), (255, 255, 255))
+        layer = Image.new("RGB", (W, H), _hex(page.get("fill"), "#ffffff"))      # couleur des cases
         img, iw, ih = picture(d, panel)
         if img is not None:
             pic, pos = _placed(img, bb, panel.get("view"), iw, ih)

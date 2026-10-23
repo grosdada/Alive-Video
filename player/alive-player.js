@@ -108,6 +108,26 @@
     return keys[keys.length - 1].v;
   }
   const hasAnim = (a) => !!a && Object.values(a.tracks || {}).some(k => k && k.length);
+  // style de page anime : couleurs interpolees composante par composante (= colorValue de geometry.js)
+  function colorValue(keys, t, fb) {
+    if (!keys || !keys.length) return hexRgb(fb);
+    if (t <= keys[0].t) return hexRgb(keys[0].v);
+    for (let i = 0; i < keys.length - 1; i++) {
+      const k0 = keys[i], k1 = keys[i + 1];
+      if (t < k1.t) {
+        const e = ease(k0.e, (t - k0.t) / Math.max(1e-9, k1.t - k0.t)), a = hexRgb(k0.v), b = hexRgb(k1.v);
+        return a.map((x, j) => x + (b[j] - x) * e);
+      }
+    }
+    return hexRgb(keys[keys.length - 1].v);
+  }
+  function pageAt(pg, anim, t) {
+    const T = (anim && anim.tracks) || {}, out = Object.assign({}, pg);
+    for (const k of ["strokeWidth", "gutter", "margin"]) out[k] = trackValue(T["page." + k], t, +pg[k] || 0);
+    out.rgb = { bg: colorValue(T["page.bg"], t, pg.bg || "#ffffff"), fill: colorValue(T["page.fill"], t, pg.fill || "#ffffff"),
+                stroke: colorValue(T["page.stroke"], t, pg.stroke || "#111111") };
+    return out;
+  }
   function layoutAt(layout, anim, t) {
     const T = anim.tracks;
     const walk = (n) => n.t === "leaf" ? n : Object.assign({}, n, {
@@ -180,12 +200,13 @@
   // la page a l'instant de son horloge : cases (boite, polygone elargi), cases vides, traits
   function updateGeometry(inst) {
     if (!inst.anim) return;
-    const M = inst.data, pg = M.pagep, sw = +pg.strokeWidth || 0;
+    const M = inst.data, pg = pageAt(M.pagep, M.anim, inst.t), sw = Math.max(0, +pg.strokeWidth || 0);
     const polys = computeLayout(pg, layoutAt(M.layout, M.anim, inst.t));
-    const key = JSON.stringify(polys);
+    const key = JSON.stringify([polys, pg.rgb, sw]);
     if (key === inst.geoKey) return;
     inst.geoKey = key;
     inst.exact = polys;
+    inst.bg = pg.rgb.bg; inst.fill = pg.rgb.fill; inst.strokeRgb = pg.rgb.stroke;   // fond, cases vides, traits
     inst.strokes = sw > 0 ? Object.values(polys).map(p => [offsetPoly(p, sw / 2), offsetPoly(p, -sw / 2)]) : [];
     for (const st of inst.panels) {
       const poly = polys[st.p.id];
@@ -744,7 +765,7 @@
           const poly = (owner.exact || {})[st.p.id];
           if (poly && !(st.kind && st.ready)) tris.push(...fan(poly));
         }
-        solid(tris, [1, 1, 1]);
+        solid(tris, owner.fill || [1, 1, 1]);
       } else {
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -776,7 +797,7 @@
       }
       gl.disableVertexAttribArray(prog.aT);
       if (animPage && (owner.strokes || []).length) {   // traits des cadres : bande entre les deux polygones decales
-        const tris = [], stroke = hexRgb(owner.data.pagep.stroke || "#111111");
+        const tris = [], stroke = owner.strokeRgb || hexRgb(owner.data.pagep.stroke || "#111111");
         for (const [outer, inner] of owner.strokes) {
           const O = toClip(outer), I = toClip(inner), n = O.length;
           for (let i = 0; i < n; i++) { const j = (i + 1) % n; tris.push(...O[i], ...O[j], ...I[j], ...O[i], ...I[j], ...I[i]); }
@@ -880,6 +901,10 @@
   async function capture(inst, t, W, H) {
     const wasPlaying = inst.playing;
     inst.playing = false;
+    for (let i = 0; i < 100 && (inst.panels.some(st => st.kind && !st.ready) || !grainImage().complete ||
+                                  inst.pageEl.querySelector(".ac-bg")?.complete === false); i++) {
+      await new Promise((ok) => setTimeout(ok, 100));      // medias et bruit du grain charges
+    }
     seek(inst, t);
     inst.geoKey = null;
     updateGeometry(inst);

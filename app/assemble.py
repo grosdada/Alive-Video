@@ -142,7 +142,8 @@ def _build(pid, log=print, force=False):
     if anim:                                         # cadrage anime : le lecteur recalcule les cases a chaque instant
         data.update(layout=p["layout"], anim=anim, pagep={
             "width": geo["size"][0], "height": geo["size"][1], "margin": page.get("margin"), "gutter": page.get("gutter"),
-            "strokeWidth": page.get("strokeWidth"), "stroke": page.get("stroke") or "#111111", "bg": page.get("bg") or "#ffffff"})
+            "strokeWidth": page.get("strokeWidth"), "stroke": page.get("stroke") or "#111111", "bg": page.get("bg") or "#ffffff",
+            "fill": page.get("fill") or "#ffffff"})
     report, encoded = [], []
     cases = list(geo["panels"])
     if anim:                                         # cases refermees dans la page finie : presentes a d'autres instants

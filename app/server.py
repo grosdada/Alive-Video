@@ -68,7 +68,7 @@ def merge_project(server_p, ui_p):
     recopie."""
     out = dict(ui_p)
     out["id"], out["created"] = server_p["id"], server_p.get("created")
-    for k in ("published", "export"):              # ecrits par le serveur (publication, reglages d'export)
+    for k in ("published", "export", "exported"):  # ecrits par le serveur (publication, reglages, historique d'export)
         if k in server_p:
             out[k] = server_p[k]
         else:
@@ -309,6 +309,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(settings.public())
             if m == "PUT":
                 return self.send_json(settings.update(self.jbody()))
+        if head == "pickfolder" and m == "POST":      # fenetre « choisir un dossier » (sur le poste du serveur)
+            initial = self.jbody().get("initial") or ""
+            try:
+                return self.send_json({"folder": videoexport.pick_folder(initial)})
+            except Exception as e:                          # noqa: BLE001 - pas de fenetre possible : chemin a taper
+                return self.send_json({"error": f"choix de dossier impossible ici ({e.__class__.__name__}) : taper le chemin",
+                                       "nopicker": True}, 501)
         if head == "exports" and m == "GET":          # exports video en cours (pastilles de l'accueil)
             return self.send_json(videoexport.active())
         if head == "publish":
@@ -425,7 +432,8 @@ class Handler(BaseHTTPRequestHandler):
                     p["pageSound"] = dict(p.get("pageSound") or {}, **b["pageSound"], rev=time.time())
                 if isinstance(b.get("export"), dict):
                     s = videoexport.settings_of({}, b["export"])
-                    p["export"] = {k: s[k] for k in videoexport.DEFAULTS}
+                    folder = b["export"].get("folder", (p.get("export") or {}).get("folder") or "")
+                    p["export"] = dict({k: s[k] for k in videoexport.DEFAULTS}, folder=str(folder or "").strip())
                 if isinstance(b.get("layout"), dict):
                     p["layout"] = b["layout"]
                     for i in geometry.leaves(p["layout"]):
@@ -496,17 +504,26 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and m == "GET":
                 p = store.get(pid)
                 return self.send_json({"task": videoexport.status(pid), "videos": videoexport.list_videos(pid),
-                                       "settings": videoexport.settings_of(p), "auto": videoexport.auto_duration(p)})
+                                       "settings": videoexport.settings_of(p), "auto": videoexport.auto_duration(p),
+                                       "folder": (p.get("export") or {}).get("folder") or "",
+                                       "default_folder": settings.load().get("export", {}).get("folder") or "",
+                                       "project_folder": str(store.pdir(pid) / "video")})
             if len(parts) == 3 and m == "POST":
                 b = self.jbody()
                 if not store.get(pid).get("geometry") or not store.path(pid, "page/page.jpg").exists():
                     compose.compose(pid)
                 s = videoexport.settings_of({}, b)
-                store.mutate(pid, lambda p: p.update(export={k: s[k] for k in videoexport.DEFAULTS}))
+                folder = str(b.get("folder") or "").strip()      # dossier choisi pour cette planche ("" = par defaut)
+                if folder and not Path(os.path.expanduser(folder)).is_absolute():
+                    raise ApiError("dossier d'export : chemin complet attendu")
+                store.mutate(pid, lambda p: p.update(export=dict({k: s[k] for k in videoexport.DEFAULTS}, folder=folder)))
+                videoexport.output_dir(pid)                       # dossier cree tout de suite (erreur visible)
                 return self.send_json(videoexport.start(pid))
+            if parts[3:] == ["file"] and m in ("GET", "HEAD"):   # une video exportee (ou qu'elle soit)
+                return self.send_file(videoexport.video_file(pid, q.get("name", "")))
             if parts[3:] == ["reveal"] and m == "POST":
-                folder = store.pdir(pid) / "video"
-                folder.mkdir(exist_ok=True)
+                vids = videoexport.exported_files(pid)
+                folder = vids[0].parent if vids else videoexport.output_dir(pid)
                 open_folder(folder)
                 return self.send_json({"ok": True, "folder": str(folder)})
         if sub == "still" and m == "GET":               # une image de l'export a l'instant t (controle, vignettes)
