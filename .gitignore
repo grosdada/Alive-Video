@@ -10,3 +10,7 @@ __pycache__/
 .venv/
 .claude/settings.local.json
 data/
+build/
+mac/vendor/
+*.dmg
+*.app/

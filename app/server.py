@@ -33,7 +33,7 @@ FOLDERS = DATA / "folders.json"      # projets de rangement : {"folders": [{id, 
 UPLOADS = DATA / "uploads"           # gros envois (videos) : ecrits sur le disque au fil de l'eau
 SPOOL = 16 * 1024 * 1024
 ACCENT = "#b36bff"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("video/mp4", ".mp4")
 mimetypes.add_type("audio/mpeg", ".mp3")

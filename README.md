@@ -19,6 +19,27 @@ Il faut Python 3.10+, ffmpeg et ffprobe dans le PATH, et `pip install -r require
 
 ## Sur Mac
 
+### Application autonome (DMG)
+
+Sur un Mac Apple Silicon (M1 et suivants), macOS 14 ou plus récent : ouvrez le
+DMG, glissez **Alive Video** dans **Applications**, puis lancez-la. Rien à installer.
+Le menu **▦** permet de rouvrir l'interface, d'afficher les planches et de quitter.
+Les données restent dans **Documents › Alive Video**.
+
+Pour mettre à jour : quittez Alive Video depuis son menu, ouvrez le nouveau DMG,
+glissez l'application dans Applications et choisissez **Remplacer**. Vos planches
+sont conservées. Dans la fenêtre d'export, **Parcourir…** choisit le dossier des vidéos.
+
+La version est signée ad hoc, sans notarisation Apple : si macOS bloque le premier
+lancement, clic droit › Ouvrir (ou autorisation dans Confidentialité et sécurité).
+
+Pour fabriquer le DMG sur un Mac Apple Silicon équipé de Python 3.14 et des outils
+de développement Apple : `mac/build_dmg.sh`. Le résultat est dans `dist/`.
+`COPY_TO_DESKTOP=1 mac/build_dmg.sh` le copie aussi sur le Bureau.
+Test du bundle : `.venv/bin/python mac/smoke_test.py 'dist/Alive Video.app'`.
+
+### Installation depuis les sources
+
 Une seule ligne à coller dans le Terminal (Applications › Utilitaires › Terminal) :
 
 ```

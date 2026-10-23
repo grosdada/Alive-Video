@@ -572,11 +572,25 @@ def pick_folder(initial=""):
     """Fenetre « choisir un dossier » du systeme, sur le poste du serveur. -> chemin, ou "" si annule."""
     import subprocess as sp
     import sys
-    initial = initial if initial and Path(os.path.expanduser(initial)).is_dir() else str(Path.home())
+    initial = str(Path(initial).expanduser().resolve()) if initial and Path(initial).expanduser().is_dir() else str(Path.home())
     if sys.platform == "darwin":
-        r = sp.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "Dossier des vidéos exportées" '
-                                       f'default location (POSIX file "{initial}"))'], capture_output=True, text=True)
-        return r.stdout.strip().rstrip("/") if r.returncode == 0 else ""
+        # activate place le dialogue devant le navigateur. Le chemin passe en argument,
+        # jamais dans le code AppleScript (espaces, accents et guillemets sont possibles).
+        script = '''on run argv
+    activate
+    try
+        set destination to choose folder with prompt "Dossier des vidéos exportées" default location (POSIX file (item 1 of argv))
+        return POSIX path of destination
+    on error number -128
+        return ""
+    end try
+end run'''
+        with _pick_lock:
+            r = sp.run(["/usr/bin/osascript", "-e", script, initial], capture_output=True, text=True)
+        if r.returncode:
+            raise RuntimeError(r.stderr.strip() or "Le sélecteur de dossier macOS n’a pas pu s’ouvrir")
+        result = r.stdout.strip()
+        return str(Path(result)) if result else ""
     with _pick_lock:
         import tkinter
         from tkinter import filedialog

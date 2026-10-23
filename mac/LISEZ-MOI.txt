@@ -1,0 +1,32 @@
+ALIVE VIDEO — macOS Apple Silicon (M1, M2, M3, M4 et suivants)
+macOS 14 Sonoma ou plus récent.
+
+INSTALLATION
+Ouvrez le DMG, glissez « Alive Video » sur « Applications », puis lancez
+Alive Video depuis Applications. Aucun Python ni Homebrew à installer.
+
+L’interface s’ouvre dans votre navigateur. L’icône ▦ dans la barre des menus
+permet de rouvrir l’interface, d’ouvrir les planches et de quitter.
+
+Vos données sont dans Documents > Alive Video. Les vidéos exportées sont
+dans projects > votre-planche > video. Remplacer l’application lors d’une
+mise à jour conserve ces données.
+
+MISE À JOUR
+Quittez Alive Video depuis son menu ▦ avant de remplacer l’application.
+Ouvrez le nouveau DMG, glissez Alive Video dans Applications et choisissez
+Remplacer. Relancez-la : vos planches restent dans Documents > Alive Video.
+Dans la fenêtre d’export, Parcourir permet de choisir où arrivent vos vidéos.
+
+PREMIÈRE OUVERTURE
+Cette version est signée localement (ad hoc), sans notarisation Apple.
+Si macOS bloque l’application : clic droit sur Alive Video > Ouvrir.
+Si nécessaire, autorisez-la dans Réglages Système > Confidentialité et sécurité.
+
+COMPOSANTS
+Python, Pillow, NumPy, OpenCV, PyObjC, rumps, PyInstaller, FFmpeg et FFprobe
+sont embarqués. FFmpeg : version statique OSXExperts, https://www.osxexperts.net/.
+Les métadonnées et licences des dépendances Python sont dans le bundle.
+Sources d’Alive Video : https://github.com/grosdada/Alive-Video
+Sources et configuration FFmpeg : voir build/ffmpeg-version.txt et le site
+du fournisseur (également accessibles dans l’application, dossier docs/mac-build).

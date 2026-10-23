@@ -1,0 +1,9 @@
+# Versions utilisées pour le DMG Apple Silicon du 23 octobre 2026 (Python 3.14).
+Pillow==13.0.0
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
+PyInstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
+rumps==0.4.0
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
