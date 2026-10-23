@@ -1,23 +1,24 @@
-// Alive-Comics : application (etat, projets, edition, rendus, export, publication, reglages, livres).
-import { api, get, post, put, upload, uploadSound, h, toast, debounce, modal, loadImage } from "./api.js";
-import { compute, PRESETS, PAGE_DEFAULTS, FORMATS, pageSize, transpose, randomLayout, removeLeaf, splitLeaf, leaves, clone } from "./geometry.js";
-import { Editor, icon } from "./editor.js";
-import { startImage, pageImages } from "./exporter.js";
-import { cameraForm, actionForm, audioForm, renderSection, pageForm, statusText, sideName, treatmentForm } from "./forms.js";
+// Alive-Video : application (etat, projets, edition des planches, videos dans les cases, export video, livres).
+import { get, post, put, upload, uploadSound, h, toast, debounce, modal } from "./api.js";
+import { compute, PRESETS, PAGE_DEFAULTS, FORMATS, pageSize, transpose, randomLayout, removeLeaf, splitLeaf, leaves } from "./geometry.js";
+import { Editor, icon, media } from "./editor.js";
+import { pageImages } from "./exporter.js";
+import { mediaForm, playForm, soundsForm, pageForm, fmtSec } from "./forms.js";
 
-const NEW_PANEL = () => ({ camera: { id: "arc", fields: {} }, action: { id: "fige", fields: {} }, audio: { mode: "none" } });
+const NEW_PANEL = () => ({ view: { zoom: 1, ox: 0, oy: 0 } });
+const VIDEO_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mpe?g|mts|m2ts|wmv|ogv|gif)$/i;
 
 class App {
   constructor() {
     this.project = null;
     this.selected = null;
-    this.jobs = [];
-    this.workers = [];
+    this.exports = [];
     this.undo = [];
     this.redo = [];
     this.saveSoon = debounce(() => this.save(), 700);
     this.pageSoon = debounce(() => this.uploadPage(), 2500);
     this.commitSoon = debounce((k) => this.commit(k), 350);
+    this.editSoon = new Map();
   }
 
   async init() {
@@ -25,10 +26,9 @@ class App {
     this.root = document.getElementById("app");
     window.addEventListener("hashchange", () => this.route());
     document.addEventListener("keydown", (e) => this.keys(e));
-    setInterval(() => this.pollJobs(), 2000);
-    setInterval(() => this.pollWorkers(), 5000);
-    this.pollWorkers();
+    setInterval(() => this.poll(), 2000);
     this.route();
+    if (!this.info.ffmpeg) toast("ffmpeg introuvable : il faut ffmpeg dans le PATH pour les vidéos et l'export.", "error", 15000);
   }
 
   route() {
@@ -39,14 +39,13 @@ class App {
   // ================================================================ accueil : projets et livres
   async home() {
     this.project = null; this.selected = null;
-    const [projects, books, jobs, fdata] = await Promise.all([get("projects"), get("books"), get("jobs?active=1").catch(() => []),
-                                                    get("folders").catch(() => ({ folders: [], assign: {} }))]);
+    const [projects, books, fdata] = await Promise.all([get("projects"), get("books"),
+                                                        get("folders").catch(() => ({ folders: [], assign: {} }))]);
     const folders = fdata.folders, assign = fdata.assign;            // projets de rangement : une planche dans un seul projet
     const saveFolders = () => put("folders", { folders, assign });
     let cur = pref("ac-folder", "all");                               // all | none | <id d'un projet>
     if (cur !== "all" && cur !== "none" && !folders.some(f => f.id === cur)) cur = "all";
     const selected = new Set();                                       // planches cochees (ctrl / cmd + clic) pour un deplacement groupe
-    this.homeJobs = jobs.filter(j => j.status === "running" || j.status === "queued");
     this.root.textContent = "";
     this.root.append(this.topbar(true));
     let view = pref("ac-home-view", "grid"), sort = pref("ac-home-sort", "updated"), q = "";
@@ -152,7 +151,8 @@ class App {
       list.map(p => h("a.card", { href: "#p=" + p.id, "data-pid": p.id },
         h("div.thumb", p.thumb ? h("img", { src: p.thumb + "?t=" + Math.round(p.updated), loading: "lazy" })
                                : h("div.noimg", { style: ratio(p) }), h("span.calc")),
-        h("div", h("b", p.name), stars(p.review), h("small", `${p.panels} cases · ${fmtDate(p.updated)}`)))));
+        h("div", h("b", p.name), stars(p.review),
+          h("small", `${p.panels} cases · ${p.videos || 0} vidéo${(p.videos || 0) > 1 ? "s" : ""} · ${fmtDate(p.updated)}`)))));
   }
 
   projectList(list, inBooks) {
@@ -170,26 +170,22 @@ class App {
       list.length ? null : h("p.muted", "Aucune planche."));
   }
 
-  // pastilles « en calcul » (clignote) / « en file » sur les planches et les livres de l'accueil
+  // pastilles « export en cours » sur les planches et les livres de l'accueil
   paintCalc() {
     if (!this.root) return;
     const by = {};
-    for (const j of this.homeJobs || []) {
-      const o = by[j.project] = by[j.project] || { run: 0, wait: 0 };
-      if (j.status === "running") o.run++; else o.wait++;
-    }
-    const paint = (badge, c) => {
+    for (const t of this.exports || []) by[t.project] = t;
+    const paint = (badge, t) => {
       if (!badge) return;
-      if (!c || (!c.run && !c.wait)) { badge.className = "calc"; badge.textContent = ""; badge.title = ""; return; }
-      badge.className = "calc " + (c.run ? "run" : "wait");
-      badge.textContent = c.run ? `● calcul${c.wait ? ` · ${c.wait} en file` : ""}` : `${c.wait} en file`;
-      badge.title = `${c.run} rendu(s) en cours, ${c.wait} en file d'attente`;
+      if (!t) { badge.className = "calc"; badge.textContent = ""; badge.title = ""; return; }
+      badge.className = "calc " + (t.status === "running" ? "run" : "wait");
+      badge.textContent = t.status === "running" ? `● export ${Math.round((t.progress || 0) * 100)} %` : "export en file";
+      badge.title = t.message || "";
     };
     for (const el of this.root.querySelectorAll("[data-pid]")) paint(el.querySelector(".calc"), by[el.dataset.pid]);
     for (const el of this.root.querySelectorAll("[data-book]")) {
-      const c = { run: 0, wait: 0 };
-      for (const pid of (el.dataset.pages || "").split(",")) if (by[pid]) { c.run += by[pid].run; c.wait += by[pid].wait; }
-      paint(el.querySelector(".bhead .calc"), c);
+      const t = (el.dataset.pages || "").split(",").map(pid => by[pid]).find(Boolean);
+      paint(el.querySelector(".bhead .calc"), t);
     }
   }
 
@@ -332,7 +328,7 @@ class App {
 
   // dialogue d'un projet : creer (fid null) / renommer / couleur / supprimer (les planches restent, « sans projet »)
   folderMenu(fid, folders, assign, save, redraw, onCreated) {
-    const f = fid ? folders.find(x => x.id === fid) : { id: Math.random().toString(36).slice(2, 8), name: "", color: "#f2b45c" };
+    const f = fid ? folders.find(x => x.id === fid) : { id: Math.random().toString(36).slice(2, 8), name: "", color: "#b36bff" };
     const name = h("input", { value: f.name, placeholder: "Nom du projet (ex. Mariage Provence)" });
     const color = h("input", { type: "color", value: f.color });
     modal(fid ? "Projet" : "Nouveau projet", h("div.form", h("label.field", h("span.lab", "Nom"), name), h("label.field", h("span.lab", "Couleur"), color)), [
@@ -383,6 +379,7 @@ class App {
     }
   }
 
+
   // ================================================================ espace de travail
   async open(pid) {
     try { this.project = await get("projects/" + pid); this._rev = this.project.rev; this._savedSig = null; }
@@ -398,25 +395,19 @@ class App {
     this.left = h("aside.left");
     this.center = h("section.center");
     this.right = h("aside.right");
-    this.drawer = h("div.drawer");
-    this.root.append(h("div.work", this.left, this.center, this.right), this.drawer);
+    this.root.append(h("div.work", this.left, this.center, this.right));
     this.editor = new Editor(this.center, this);
-    this.director = h("div.director");
-    this.root.append(this.director);
-    this.renderDirector();
     this.editor.render();
     this.renderLeft();
     this.refreshInspector();
-    this.renderDrawer();
-    this.pollJobs();
     this.save(true);
   }
 
   topbar(home) {
     const P = this.project;
     const bar = h("header.top",
-      h("a.logo", { href: "#" }, "ALIVE ", h("b", "COMICS")),
-      home ? h("span.muted", "Planches de BD animées") : null);
+      h("a.logo", { href: "#" }, "ALIVE ", h("b", "VIDEO")),
+      home ? h("span.muted", "Planches de BD en vidéo") : null);
     if (!home) {
       const name = h("input.pname", { value: P.name, title: "Nom de la planche" });
       name.addEventListener("change", () => { P.name = name.value; this.save(); });
@@ -424,17 +415,18 @@ class App {
         h("button.icon", { title: "Annuler (Ctrl+Z)", on: { click: () => this.doUndo() } }, "↶"),
         h("button.icon", { title: "Rétablir (Ctrl+Y)", on: { click: () => this.doRedo() } }, "↷"));
     }
-    this.workerChips = h("div.workers");
-    bar.append(h("span.sp"), this.workerChips);
+    this.exportChip = h("span.calc.top-calc");
+    bar.append(h("span.sp"), this.exportChip);
     if (!home) {
       bar.append(
-        h("button.primary", { on: { click: () => this.renderDialog(null) } }, "Générer les cases"),
+        h("button.primary", { on: { click: () => this.exportDialog() } }, icon("video"), " Exporter la vidéo"),
         h("button", { on: { click: () => this.preview() } }, "Aperçu"),
+        h("button", { title: "Aperçu en mode édition : lecture, couleur, cadrage, filtres, sons de chaque case",
+                      on: { click: () => this.preview(true) } }, "✏️ Éditer"),
         h("button", { title: "Ouvrir le dossier de la page (index.html, vidéos, sons)", on: { click: () => this.revealFolder() } }, "📁 Dossier"),
         h("button", { on: { click: () => this.publishDialog() } }, "Publier"));
     }
     bar.append(h("button.icon", { title: "Réglages", on: { click: () => this.settingsDialog() } }, "⚙"));
-    this.paintWorkers();
     return bar;
   }
 
@@ -473,9 +465,9 @@ class App {
     const layout = make(() => ({ t: "leaf", id: "p" + (P.nextId++) }));
     const fresh = compute(P.page, layout).panels.map(g => g.id);
     const panels = {};
-    fresh.forEach((id, i) => {        // les images suivent l'ordre de lecture
+    fresh.forEach((id, i) => {        // les videos et images suivent l'ordre de lecture
       const old = order[i] ? P.panels[order[i]] : null;
-      panels[id] = old ? Object.assign({}, old, { startSig: null }) : NEW_PANEL();
+      panels[id] = old ? Object.assign({}, old) : NEW_PANEL();
     });
     P.layout = layout; P.panels = panels;
     this.selected = null;
@@ -490,7 +482,6 @@ class App {
     const nid = "p" + (P.nextId++);
     P.layout = splitLeaf(P.layout, id, dir, nid);
     P.panels[nid] = NEW_PANEL();
-    if (P.panels[id]) P.panels[id].startSig = null;
     this.pushUndo(before);
     this.editor.render(); this.renderLeft(); this.save(); this.pageSoon();
   }
@@ -523,72 +514,53 @@ class App {
     this.right.textContent = "";
     if (!id) {
       this.right.append(h("h3", "Page"), pageForm(this),
-        h("p.muted", "Astuce : glisse une image directement sur une case. Chaque case a ses icônes caméra, action et son."));
+        h("p.muted", "Astuce : glisse une vidéo directement sur une case. Chaque case a ses icônes : média, filtres, sons."));
       return;
     }
     const g = this.editor.geom.panels.find(x => x.id === id);
     const panel = this.panel(id);
-    const imgBox = h("div.form");
-    if (panel.image) {
-      const z = h("input", { type: "range", min: 100, max: 600, value: Math.round((panel.view?.zoom || 1) * 100) });
-      z.addEventListener("input", () => { panel.view = Object.assign({}, panel.view, { zoom: z.value / 100 }); this.editor.render(); this.commitSoon("image"); });
-      imgBox.append(h("div.row",
-        h("button", { on: { click: () => this.pickImage(id) } }, icon("image"), " Remplacer"),
-        h("button", { on: { click: () => { panel.view = { zoom: 1, ox: 0, oy: 0 }; this.editor.render(); this.commit("image"); this.refreshInspector(); } } }, "Recentrer"),
-        h("button.danger", { on: { click: () => { delete panel.image; panel.startSig = null; this.editor.render(); this.commit("image"); this.refreshInspector(); } } }, "Retirer")),
-        h("label.field", h("span.lab", "Zoom (molette sur la case, glisser pour recadrer)"), z));
-    } else {
-      imgBox.append(h("button.primary", { on: { click: () => this.pickImage(id) } }, icon("image"), " Importer une image"));
-    }
-    const relief = panel.treatment === "relief";        // relief : ni camera, ni action, ni rendu video
     this.right.append(...[
       h("h3", `Case ${g ? g.order : ""}`),
-      section("Image", "image", imgBox),
-      section("Traitement", null, treatmentForm(this, id)),
-      relief ? null : section("Caméra", "camera", cameraForm(this, id)),
-      relief ? null : section("Action", "action", actionForm(this, id)),
-      section("Sons", "audio", audioForm(this, id)),
-      relief ? null : section("Rendus", null, renderSection(this, id))].filter(Boolean));
-  }
-
-  label(kind, id) {
-    const list = kind === "camera" ? this.presets.cameras : this.presets.actions;
-    return (list.find(x => x.id === id) || list[0]).label;
+      section(panel.image ? "Image" : "Vidéo", panel.image ? "image" : "video", mediaForm(this, id)),
+      media(panel) ? section(panel.video ? "Lecture et effets" : "Effets", "filters", playForm(this, id)) : null,
+      section("Sons", "audio", soundsForm(this, id))].filter(Boolean));
   }
 
   audioLabel(panel) {
-    const a = panel.audio || {}, v = panel.voice || {}, parts = [];
-    if (a.mode === "file") parts.push(a.name || "fichier");
-    if (a.mode === "generate") parts.push((this.presets.audio.find(x => x.id === a.preset) || this.presets.audio[0]).label);
-    if (v.mode && v.mode !== "none") parts.push(v.mode === "tts" ? "voix IA" : v.mode === "music" ? "2e musique" : "voix off " + (v.name || ""));
-    if (panel.foley?.on) parts.push("bruitages");
+    const parts = [];
+    if (panel.video?.audio) parts.push("son de la vidéo" + ((panel.edit || {}).volume === 0 ? " (muet)" : ""));
+    const n = (panel.extraSounds || []).length;
+    if (n) parts.push(`${n} son${n > 1 ? "s" : ""} ajouté${n > 1 ? "s" : ""}`);
     return parts.join(" + ") || "aucun";
   }
 
-  hasSound(panel) {
-    return (panel.audio?.mode && panel.audio.mode !== "none") || (panel.voice?.mode && panel.voice.mode !== "none") || !!panel.foley?.on;
+  hasSound(panel) { return (panel.extraSounds || []).length > 0; }
+
+  panelTag(panel) {
+    const e = panel.edit || {}, parts = [];
+    if (panel.video) {
+      const v = panel.video, n = v.frames || 1, r = Array.isArray(e.range) ? e.range : [0, n - 1];
+      parts.push("▶ " + fmtSec((r[1] - r[0] + 1) / (v.fps_f || 25) / (e.speed || 1)));
+      if (e.speed && e.speed !== 1) parts.push("× " + String(e.speed).replace(".", ","));
+      if (e.reverse) parts.push("◀ envers");
+      if (e.loop === false) parts.push("une fois");
+    } else parts.push("image");
+    const fl = (e.filters || []).filter(f => f.on !== false).length;
+    if (fl) parts.push(`${fl} effet${fl > 1 ? "s" : ""}`);
+    return parts.join(" · ");
   }
 
-  panelStatus(id) {
-    const js = this.jobs.filter(j => this.project && j.project === this.project.id && j.panel === id);
-    if (js.some(j => j.status === "running")) return { kind: "running", text: "calcul en cours" };
-    if (js.some(j => j.status === "queued")) return { kind: "queued", text: "en attente" };
-    const last = js.filter(j => j.kind === "video").sort((a, b) => b.created - a.created)[0];
-    if (last?.status === "error") return { kind: "error", text: "erreur : " + last.error };
-    const p = this.project.panels[id] || {};
-    if ((p.renders || []).length) return { kind: "done", text: "rendu prêt" };
-    return null;
-  }
+  panelStatus() { return null; }
 
   // menu d'une icone dans la case
   panelMenu(id, kind, anchor) {
     document.querySelectorAll(".popover").forEach(p => p.remove());
     const r = anchor.getBoundingClientRect();            // avant select() : il redessine les icones
     if (this.selected !== id) this.select(id);
-    if (kind === "image") return this.pickImage(id);
-    const form = kind === "camera" ? cameraForm(this, id, true) : kind === "action" ? actionForm(this, id, true) : audioForm(this, id);
-    const pop = h("div.popover", h("div.pop-head", icon(kind), h("b", { camera: "Prompt caméra", action: "Prompt action", audio: "Sons de la case" }[kind]),
-                                   h("button.icon", { on: { click: () => pop.remove() } }, "✕")), form);
+    if (kind === "image" || kind === "video") return this.pickMedia(id);
+    if (kind === "filters") return this.editInPreview(id);
+    const pop = h("div.popover", h("div.pop-head", icon(kind), h("b", "Sons de la case"),
+                                   h("button.icon", { on: { click: () => pop.remove() } }, "✕")), soundsForm(this, id));
     document.body.append(pop);
     pop.style.left = Math.min(window.innerWidth - 340, Math.max(8, r.left)) + "px";
     pop.style.top = Math.min(window.innerHeight - 80, r.bottom + 6) + "px";
@@ -597,44 +569,87 @@ class App {
   }
 
   // ---------------------------------------------------------------- import
-  pickImage(id) { pickFile("image/*", (f) => this.importImage(id, f)); }
-  pickAudio(id, layer = "audio") { pickFile("audio/*", (f) => this.importAudio(id, f, layer)); }
+  pickMedia(id, kind) {
+    const accept = kind === "image" ? "image/*" : kind === "video" ? "video/*" : "video/*,image/*";
+    pickFile(accept, (f) => (f.type.startsWith("video/") || VIDEO_EXT.test(f.name) ? this.importVideo(id, f) : this.importImage(id, f)));
+  }
+  pickAudio(id) { pickFile("audio/*", (f) => this.importAudio(id, f)); }
 
   async importImage(id, file) {
     try {
-      const res = await upload(`projects/${this.project.id}/upload?kind=image&name=${encodeURIComponent(file.name)}`, file);
-      const im = await loadImage(res.url);
-      const before = this.snapshot();
-      const panel = this.panel(id);
-      panel.image = { file: res.file, url: res.url, w: im.naturalWidth, h: im.naturalHeight, name: file.name };
-      panel.view = { zoom: 1, ox: 0, oy: 0 };
-      panel.startSig = null;
-      this.pushUndo(before);
-      this.select(id);
-      this.save(); this.pageSoon();
+      await this.flushAll();
+      await upload(`projects/${this.project.id}/panels/${id}/image?name=${encodeURIComponent(file.name)}`, file);
+      await this.reloadPanel(id);
+      toast("Image posée dans la case.", "ok");
     } catch (e) { toast(e.message, "error"); }
   }
 
-  async importAudio(id, file, layer = "audio") {
+  // video : l'original est garde, le serveur fait la copie de lecture et l'affiche (quelques secondes)
+  async importVideo(id, file) {
+    const mb = Math.round(file.size / 1e5) / 10;
+    const veil = h("div.veil", h("div", h("b", "Vidéo : " + file.name), h("p.muted", `Envoi (${mb} Mo) et préparation de la copie de lecture…`)));
+    document.body.append(veil);
     try {
-      const res = await uploadSound(`projects/${this.project.id}/upload?kind=${layer}&panel=${id}&name=${encodeURIComponent(file.name)}`, file);
-      const panel = this.panel(id);
-      Object.assign(panel[layer] = panel[layer] || {}, { mode: "file", file: res.file, name: file.name });
-      this.refreshInspector(); this.editor.renderOverlay(); this.save();
-      toast(res.reused ? "Son déjà importé : le fichier existant est réutilisé." : "Son importé dans la case.", "ok");
+      await this.flushAll();
+      await upload(`projects/${this.project.id}/panels/${id}/video?name=${encodeURIComponent(file.name)}`, file);
+      await this.reloadPanel(id);
+      const v = this.panel(id).video;
+      toast(`Vidéo posée : ${v.w} × ${v.h}, ${fmtSec(v.duration)}${v.audio ? ", avec son" : ", sans son"}.`, "ok");
+    } catch (e) { toast(e.message, "error", 9000); }
+    finally { veil.remove(); }
+  }
+
+  // la case a ete changee par le serveur (media importe) : on reprend sa version, le reste de la planche ne bouge pas
+  async reloadPanel(id) {
+    const before = this.snapshot();
+    const server = await get("projects/" + this.project.id);
+    this.project.panels[id] = Object.assign(NEW_PANEL(), server.panels[id] || {});
+    this._rev = server.rev;
+    this.pushUndo(before);
+    this.select(id);
+    this.save(); this.pageSoon();
+  }
+
+  async importAudio(id, file) {
+    try {
+      const res = await uploadSound(`projects/${this.project.id}/panels/${id}/sound?name=${encodeURIComponent(file.name)}`, file);
+      this.panel(id).extraSounds = res.extra;
+      this.refreshInspector(); this.editor.renderOverlay();
+      toast(res.reused ? "Son déjà importé : le fichier existant est réutilisé." : "Son ajouté à la case.", "ok");
     } catch (e) { toast(e.message, "error"); }
   }
 
-  async translateField(obj, key, redraw, purpose = "video") {
-    if (!obj[key]) return;
-    try { obj[key] = (await post("llm/translate", { text: obj[key], purpose })).text; this.commitSoon("panel"); redraw(); }
-    catch (e) { toast(e.message, "error"); }
+  // retouches (lecture, effets) : ecrites par le serveur (comme dans l'apercu), jamais par l'enregistrement de la planche
+  setEdit(id, fn) {
+    const panel = this.panel(id);
+    panel.edit = Object.assign({}, panel.edit);
+    fn(panel.edit);
+    this.editor.renderOverlay();
+    clearTimeout(this.editSoon.get(id));
+    this.editSoon.set(id, setTimeout(async () => {
+      try {
+        const res = await post(`projects/${this.project.id}/edit/${id}`, { edit: panel.edit });
+        panel.edit = res.project.panels[id].edit || {};
+        this._rev = res.project.rev;
+      } catch (e) { toast(e.message, "error"); }
+    }, 500));
+  }
+
+  async saveExtras(id, redraw) {
+    const panel = this.panel(id);
+    try {
+      const res = await post(`projects/${this.project.id}/edit/${id}`,
+                             { extra: (panel.extraSounds || []).map(x => ({ file: x.file, volume: x.volume, loop: x.loop })) });
+      panel.extraSounds = res.project.panels[id].extraSounds || [];
+      this._rev = res.project.rev;
+      if (redraw) { this.refreshInspector(); this.editor.renderOverlay(); }
+    } catch (e) { toast(e.message, "error"); }
   }
 
   // ---------------------------------------------------------------- historique et enregistrement
   snapshot() {
     const P = this.project;
-    return JSON.stringify({ page: P.page, layout: P.layout, panels: P.panels, style: P.style, nextId: P.nextId });
+    return JSON.stringify({ page: P.page, layout: P.layout, panels: P.panels, nextId: P.nextId, pageSound: P.pageSound });
   }
   pushUndo(snap) { this.undo.push(snap); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   restore(snap) {
@@ -669,12 +684,11 @@ class App {
     try {
       const saved = await put("projects/" + this.project.id, this.project);
       this._rev = saved.rev;
-      const untouched = this.snapshot() === sig;          // rien modifie pendant l'envoi
+      const untouched = this.snapshot() === sig;
       this.absorb(saved);
-      this._savedSig = untouched ? this.snapshot() : sig;   // apres absorb : copie locale = copie du serveur
+      this._savedSig = untouched ? this.snapshot() : sig;
       if (first && !saved.thumb) this.pageSoon();
     } catch (e) {
-      // serveur arrete ou en redemarrage : on retente seul, sans perdre ce qui est en memoire
       if (!this._retrySave) toast("Serveur injoignable : l'enregistrement sera retenté automatiquement.", "error", 6000);
       clearTimeout(this._retrySave);
       this._retrySave = setTimeout(() => { this._retrySave = null; this.save(); }, 3000);
@@ -683,24 +697,18 @@ class App {
     if (this._retrySave) { clearTimeout(this._retrySave); this._retrySave = null; }
   }
 
-  // reprend ce que le serveur a ecrit (rendus, choix, sons) sans toucher aux reglages en cours
+  // reprend ce que le serveur et l'apercu ecrivent (retouches, sons ajoutes, suivi, reglages d'export)
   absorb(server) {
     for (const [id, sp] of Object.entries(server.panels || {})) {
       const lp = this.project.panels[id];
       if (!lp) continue;
-      lp.renders = sp.renders || []; lp.chosen = sp.chosen || {};
-      for (const layer of ["audio", "voice", "foley"]) {
-        if (!sp[layer]) continue;
-        lp[layer] = lp[layer] || {};
-        lp[layer].generated = sp[layer].generated || [];
-        if (sp[layer].file) lp[layer].file = sp[layer].file;
-      }
+      for (const k of ["edit", "extraSounds", "review"]) { if (k in sp) lp[k] = sp[k]; else delete lp[k]; }
     }
     this.project.published = server.published;
+    this.project.export = server.export;
     if (server.pageSound) {
       const ps = this.project.pageSound = this.project.pageSound || {};
-      if ((server.pageSound.rev || 0) > (ps.rev || 0)) Object.assign(ps, server.pageSound);   // serveur plus recent
-      ps.generated = server.pageSound.generated || [];
+      if ((server.pageSound.rev || 0) > (ps.rev || 0)) Object.assign(ps, server.pageSound);
     }
   }
 
@@ -711,190 +719,7 @@ class App {
     catch (e) { if (strict) throw e; console.warn(e); }
   }
 
-  async ensureStart(id) {
-    const geo = compute(this.project.page, this.project.layout).panels.find(p => p.id === id);
-    const res = await startImage(this.project, geo);
-    if (res?.changed) await this.save();
-    return res;
-  }
-
-  // ---------------------------------------------------------------- realisateur IA
-  renderDirector() {
-    const P = this.project, el = this.director;
-    if (!el) return;
-    let open = false;
-    try { open = localStorage.getItem("ac-director") === "1"; } catch (_) { /* */ }
-    el.textContent = "";
-    el.classList.toggle("open", open);
-    const toggle = (v) => { try { localStorage.setItem("ac-director", v ? "1" : "0"); } catch (_) { /* */ } this.renderDirector(); };
-    if (!open) {
-      el.append(h("button.director-pill", { on: { click: () => toggle(true) } }, "🎬 Réalisateur IA"));
-      return;
-    }
-    const dir = P.direction || {};
-    const opts = Object.assign({ audio: true, pageSound: true, voice: false, foley: true, render: false, treatment: "h3", treats: 1 },
-                               dir.options || {});
-    const ta = h("textarea", { rows: 4, placeholder: "Ex. : une ambiance de film noir des années 70, la caméra tourne lentement autour des personnages, "
-                                              + "sons inquiétants, une voix off raconte une enquête…" });
-    ta.value = dir.instruction || "";
-    const cb = (k, label) => {
-      const c = h("input", { type: "checkbox" }); c.checked = !!opts[k];
-      c.addEventListener("change", () => { opts[k] = c.checked; });
-      return h("label.check", c, " " + label);
-    };
-    // traitement : video H3 partout, relief + quelques « biscuits » H3, ou l'IA choisit case par case
-    const tr = h("select", {}, h("option", { value: "h3" }, "Vidéo H3 partout"),
-                 h("option", { value: "relief" }, "Relief partout + biscuits H3"), h("option", { value: "mixed" }, "L'IA choisit case par case"));
-    tr.value = opts.treatment || "h3";
-    const nb = h("input", { type: "number", min: 0, max: 4, value: opts.treats ?? 1, style: { width: "56px" } });
-    const nbBox = h("label.check", "biscuits par page ", nb);
-    const syncTr = () => { opts.treatment = tr.value; nbBox.hidden = tr.value !== "relief"; };
-    tr.addEventListener("change", syncTr);
-    nb.addEventListener("change", () => { opts.treats = Math.max(0, Math.min(4, +nb.value | 0)); });
-    syncTr();
-    const go = h("button.primary", { on: { click: () => this.runDirector(ta.value, opts) } }, "✨ L'IA décide tout");
-    el.append(
-      h("div.pop-head", h("b", "🎬 Réalisateur IA"), h("button.icon", { title: "Réduire", on: { click: () => toggle(false) } }, "–")),
-      h("p.muted", "Tes images restent. L'IA regarde toute la page et règle le reste : caméras, actions, textes, sons."),
-      ta,
-      h("div.checks2", cb("audio", "Ambiance par case (tes fichiers gardés)"),
-        P.pageSound?.mode === "file" ? h("label.check.muted", "Son global : ton fichier est gardé") : cb("pageSound", "Son global de la page"),
-        cb("foley", "Bruitages (H3)"),
-        cb("voice", "Voix off qui raconte (fal)"), cb("render", "Lancer les rendus ensuite")),
-      h("div.row", h("span.muted", "Traitement :"), tr, nbBox),
-      h("p.muted", "Les plans animés suivent la compétence « boucles parfaites ». Les cases validées en vert ne sont pas touchées."),
-      go,
-      dir.summary ? h("p.ai-explain", dir.summary) : null);
-  }
-
-  async runDirector(instruction, opts) {
-    const P = this.project;
-    const geo = compute(P.page, P.layout).panels.filter(g => P.panels[g.id]?.image);
-    if (!geo.length) return toast("Pose d'abord des images dans les cases.", "error");
-    const veil = h("div.veil", h("div", h("b", "🎬 L'IA regarde les " + geo.length + " cases…"),
-                                 h("p.muted", "Elle règle caméras, actions, textes et sons (30 s à 2 min).")));
-    document.body.append(veil);
-    try {
-      for (const g of geo) await this.ensureStart(g.id);
-      await this.flushAll();
-      const res = await post(`projects/${P.id}/direct`, { instruction, options: opts });
-      await this.open(P.id);                     // recharge la planche avec les decisions de l'IA
-      this.selected = null; this.refreshInspector();
-      toast(`L'IA a réglé ${res.panels.length} cases en ${res.seconds} s.` + (res.locked?.length ? ` Cases vertes gardées : ${res.locked.join(", ")}.` : "")
-            + ` ${res.summary || ""}`, "ok", 12000);
-      if (opts.render) {
-        const ready = this.workers.filter(w => w.enabled && w.pf?.video).map(w => w.name);
-        const r = await post(`projects/${P.id}/render`, { panels: res.panels, target: "local", machines: ready });
-        for (const e of r.errors) toast(e, "error", 8000);
-        toast(`${r.jobs.length} rendu(s) lancés sur tes machines.`, "ok");
-        this.drawerOpen = true; this.pollJobs();
-      }
-    } catch (e) { toast("Réalisateur IA : " + e.message, "error", 10000); }
-    finally { veil.remove(); }
-  }
-
-  // ---------------------------------------------------------------- rendus
-  async renderDialog(ids) {
-    const P = this.project;
-    await this.save();
-    const geo = compute(P.page, P.layout).panels;
-    const withImg = geo.filter(g => P.panels[g.id]?.image);
-    if (!withImg.length) return toast("Importe d'abord des images dans les cases.");
-    const chosen = new Set(ids || withImg.map(g => g.id));
-    const list = h("div.checks", withImg.map(g => {
-      const cb = h("input", { type: "checkbox", checked: chosen.has(g.id) });
-      cb.addEventListener("change", () => { cb.checked ? chosen.add(g.id) : chosen.delete(g.id); refresh(); });
-      const p = P.panels[g.id];
-      return h("label.check", cb, ` Case ${g.order} : ${this.label("camera", p.camera?.id)} · ${this.label("action", p.action?.id)}`);
-    }));
-    let target = this.info.fal ? "local" : "local";
-    const est = h("p.estimate", "…");
-    const machines = new Set(this.workers.filter(w => w.enabled && w.pf?.video).map(w => w.name));
-    const wl = h("div.checks", this.workers.map(w => {
-      const cb = h("input", { type: "checkbox", checked: machines.has(w.name), disabled: !w.pf?.video });
-      cb.addEventListener("change", () => { cb.checked ? machines.add(w.name) : machines.delete(w.name); });
-      return h("label.check", cb, ` ${w.name} `, h("small.muted", w.pf?.video ? `prêt · ${w.pf.gpu || ""} · file ${w.pf.load || 0}` : (w.pf?.missing || []).join(", ")));
-    }));
-    const tgt = h("div.seg", [["local", "Mes machines (ComfyUI)"], ["fal", "Cloud fal"], ["auto", "Mixte"]].map(([k, l]) => {
-      const b = h("button" + (k === target ? ".on" : ""), { on: { click: () => { target = k; tgt.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); refresh(); } } }, l);
-      if (k !== "local" && !this.info.fal) { b.disabled = true; b.title = "Ajouter une clé fal dans Réglages"; }
-      return b;
-    }));
-    const refresh = async () => {
-      try {
-        const e = await post(`projects/${P.id}/estimate`, { panels: [...chosen] });
-        est.textContent = `${e.videos} vidéo(s), ${e.seconds_local} s de vidéo.` +
-          (target !== "local" ? ` Sur fal : ${e.seconds_fal} s facturées ≈ ${e.fal_cost} $ (à ${e.price_per_second} $/s, estimation).` : "") +
-          (target === "local" ? " Chaque demi-arc prend ~4 à 5 min par machine." : "") +
-          (target === "auto" ? " Les tâches non prises par tes machines après 2 min partent sur fal." : "");
-      } catch (err) { est.textContent = err.message; }
-    };
-    refresh();
-    const falNote = h("p.note");
-    const paints = () => {
-      const ids = [...chosen];
-      const tts = ids.filter(id => P.panels[id].voice?.mode === "tts" && !P.panels[id].voice.file).length;
-      const fol = ids.filter(id => P.panels[id].foley?.on && (P.panels[id].foley.engine || "h3") !== "h3").length;
-      falNote.textContent = (tts || fol) ? `À noter : ${tts ? tts + " voix off" : ""}${tts && fol ? " et " : ""}${fol ? fol + " bruitages cloud" : ""} passeront par fal (payant), même en mode « Mes machines ».` : "";
-    };
-    paints();
-    list.addEventListener("change", paints);
-    modal("Générer les vidéos", h("div.form", h("span.lab", "Cases"), list, h("span.lab", "Où calculer ?"), tgt,
-                                  h("span.lab", "Machines"), wl, est, falNote), [
-      { label: "Annuler" },
-      { label: "Lancer", primary: true, click: async () => {
-        if (!chosen.size) return false;
-        toast("Préparation des images de départ…");
-        try {
-          for (const id of chosen) await this.ensureStart(id);
-          await this.save();
-          const res = await post(`projects/${P.id}/render`, { panels: [...chosen], target, machines: target === "fal" ? null : [...machines],
-                                                              seeds: Object.fromEntries([...chosen].map(id => [id, P.panels[id].seed]).filter(([, s]) => s)) });
-          for (const e of res.errors) toast(e, "error", 8000);
-          toast(`${res.jobs.length} rendu(s) en file.`, "ok");
-          this.drawerOpen = true; this.pollJobs();
-        } catch (e) { toast(e.message, "error", 8000); }
-      } }]);
-  }
-
-  pickPageSound() {
-    pickFile("audio/*", async (file) => {
-      try {
-        const res = await uploadSound(`projects/${this.project.id}/upload?kind=page&name=${encodeURIComponent(file.name)}`, file);
-        Object.assign(this.project.pageSound = this.project.pageSound || {}, { mode: "file", file: res.file, name: file.name, rev: Date.now() / 1000 });
-        this.refreshInspector(); this.save();
-        toast(res.reused ? "Son global déjà importé : le fichier existant est réutilisé." : "Son global importé.", "ok");
-      } catch (e) { toast(e.message, "error"); }
-    });
-  }
-
-  async generatePageSound() {
-    await this.save();
-    try {
-      await post(`projects/${this.project.id}/pagesound`, { seed: Math.floor(Math.random() * 1e8) });
-      toast("Son global en file (MiniMax Music, sur tes machines).", "ok"); this.drawerOpen = true; this.pollJobs();
-    } catch (e) { toast(e.message, "error", 8000); }
-  }
-
-  async generateLayer(id, layer) {
-    await this.save();
-    try {
-      if (layer === "foley" && !Object.keys(this.panel(id).chosen || {}).length) throw new Error("rends d'abord la vidéo de la case");
-      await post(`projects/${this.project.id}/${layer}/${id}`, { seed: Math.floor(Math.random() * 1e8) });
-      toast({ audio: "Son en file (2 à 6 min, sur tes machines).", voice: "Voix en file.", foley: "Bruitages en file (fal)." }[layer], "ok");
-      this.drawerOpen = true; this.pollJobs();
-    } catch (e) { toast(e.message, "error", 8000); }
-  }
-
-  async choose(id, side, file) {
-    const saved = await post(`projects/${this.project.id}/choose`, { panel: id, side, file });
-    this.absorb(saved);
-    this.refreshInspector();
-  }
-
-  async cancelJob(jid) { await post(`jobs/${jid}/cancel`); this.pollJobs(); }
-
-  // planche modifiee par un autre (pilotage par API, autre onglet) : on recharge si rien n'est en cours ici
+  // planche modifiee ailleurs (apercu en mode edition, pilotage par API) : on recharge si rien n'est en cours ici
   async watchRev() {
     if (!this.project || this._reloading) return;
     try {
@@ -911,89 +736,128 @@ class App {
     } catch (e) { this._reloading = false; }
   }
 
-  async pollJobs() {
-    if (!this.project) {                       // accueil : pastilles « en calcul » toutes les 4 s
-      if (!this.root?.querySelector("main.home") || (this._homeTick = (this._homeTick || 0) + 1) % 2) return;
-      try {
-        this.homeJobs = (await get("jobs?active=1")).filter(j => j.status === "running" || j.status === "queued");
-        this.paintCalc();
-      } catch (e) { /* serveur en redemarrage */ }
-      return;
-    }
-    this.watchRev();
-    try {
-      const jobs = await get("jobs?project=" + this.project.id);
-      const finished = jobs.some(j => j.status === "done" && !this.jobs.find(o => o.id === j.id && o.status === "done"));
-      this.jobs = jobs;
-      if (finished) { this.absorb(await get("projects/" + this.project.id)); this.refreshInspector(); }
-      this.editor?.renderOverlay();
-      this.renderDrawer();
-    } catch (e) { /* serveur en redemarrage */ }
+  // exports en cours : pastilles de l'accueil, pastille de la barre du haut
+  async poll() {
+    try { this.exports = await get("exports"); } catch (e) { return; }
+    if (this.project) {
+      this.watchRev();
+      const t = this.exports.find(x => x.project === this.project.id);
+      if (this.exportChip) {
+        this.exportChip.className = "calc top-calc" + (t ? (t.status === "running" ? " run" : " wait") : "");
+        this.exportChip.textContent = t ? (t.status === "running" ? `● export ${Math.round(t.progress * 100)} %` : "export en file") : "";
+        this.exportChip.onclick = t ? () => this.exportDialog() : null;
+      }
+    } else this.paintCalc();
   }
 
-  async pollWorkers() {
-    try { this.workers = await get("workers"); this.paintWorkers(); } catch (e) { /* */ }
-  }
-
-  paintWorkers() {
-    if (!this.workerChips) return;
-    this.workerChips.textContent = "";
-    for (const w of this.workers) {
-      const pf = w.pf || {};
-      const kind = !w.enabled ? "off" : !pf.online ? "down" : !pf.video ? "warn" : (w.job || pf.load) ? "busy" : "ok";
-      const tip = !w.enabled ? "désactivée" : !pf.online ? "injoignable" : !pf.video ? "manque : " + (pf.missing || []).join(", ")
-        : `${pf.gpu || ""} · ComfyUI ${pf.version} · file ${pf.load || 0}${pf.music ? " · Music 3" : ""}`;
-      this.workerChips.append(h("span.chip." + kind, { title: `${w.name} : ${tip}` }, h("i"), w.name));
-    }
-    if (this.info?.fal) this.workerChips.append(h("span.chip.ok", { title: "fal.ai : clé présente" }, h("i"), "fal"));
-  }
-
-  renderDrawer() {
-    if (!this.drawer) return;
-    const active = this.jobs.filter(j => ["queued", "running"].includes(j.status));
-    const recent = this.jobs.filter(j => !["queued", "running"].includes(j.status)).sort((a, b) => (b.finished || 0) - (a.finished || 0)).slice(0, 12);
-    const order = Object.fromEntries((this.editor?.geom?.panels || []).map(g => [g.id, g.order]));
-    const row = (j) => h("tr." + j.status, h("td", j.panel === "_page" ? "Page" : `Case ${order[j.panel] || j.panel}`), h("td", sideName(j.side)),
-      h("td", statusText(j)), h("td.muted", j.error ? j.error.slice(0, 140) : (j.finished && j.started ? Math.round(j.finished - j.started) + " s" : "")),
-      h("td", ["queued", "running"].includes(j.status) ? h("button.mini", { on: { click: () => this.cancelJob(j.id) } }, "Annuler") : null));
-    this.drawer.textContent = "";
-    this.drawer.classList.toggle("open", !!this.drawerOpen);
-    this.drawer.append(
-      h("button.drawer-tab", { on: { click: () => { this.drawerOpen = !this.drawerOpen; this.renderDrawer(); } } },
-        `Rendus : ${active.length} en cours`, this.drawerOpen ? " ▾" : " ▴"));
-    if (this.drawerOpen) {
-      this.drawer.append(h("div.drawer-body", h("table.jobs", active.map(row), recent.map(row)),
-        h("button.mini", { on: { click: async () => { await post("jobs/clear", { project: this.project.id }); this.pollJobs(); } } }, "Effacer les terminés")));
-    }
-  }
-
-  // ---------------------------------------------------------------- apercu et publication
-  // ce qui fait l'image de la page : format, decoupage, images et leur cadrage
+  // ---------------------------------------------------------------- apercu, export, publication
   pageSig() {
     const P = this.project;
     return JSON.stringify({ page: P.page, layout: P.layout,
-                            imgs: Object.fromEntries(Object.entries(P.panels).map(([k, v]) => [k, [v.image?.file, v.view]])) });
+                            imgs: Object.fromEntries(Object.entries(P.panels).map(([k, v]) => [k, [media(v)?.url, v.view]])) });
   }
 
   async flushAll() {
-    if (this.snapshot() !== this._savedSig) await this.save();          // enregistrer seulement si quelque chose a change
-    if (this.pageSig() !== this._pageSig) await this.uploadPage(true);  // image de page renvoyee seulement si elle a change
+    if (this.snapshot() !== this._savedSig) await this.save();
+    if (this.pageSig() !== this._pageSig) await this.uploadPage(true);
   }
 
-  async preview() {
+  async preview(edit, caseId) {
     // l'onglet s'ouvre AU CLIC : ouvert apres l'assemblage (plusieurs secondes), le navigateur le bloquerait
     const tab = openPending("Assemblage de la page…");
     try {
       await this.flushAll();
       const res = await post(`projects/${this.project.id}/export`);
-      for (const r of res.report.filter(x => x.includes("manquant"))) toast(r, "info", 7000);
-      showIn(tab, res.url + "?t=" + Date.now());
+      showIn(tab, res.url + "?t=" + Date.now() + (edit ? "&edit=1" : "") + (caseId ? "&case=" + caseId : ""));
     } catch (e) { if (tab) tab.close(); toast(e.message, "error", 9000); }
   }
+
+  editInPreview(id) { this.preview(true, id); }
 
   async revealFolder() {
     try { await this.flushAll(); await post(`projects/${this.project.id}/reveal`); }
     catch (e) { toast(e.message, "error"); }
+  }
+
+  // export video de la page : duree, resolution (petit cote), images par seconde ; suivi de l'avancement
+  async exportDialog() {
+    const P = this.project;
+    await this.flushAll().catch(() => {});
+    let info;
+    try { info = await get(`projects/${P.id}/video`); } catch (e) { return toast(e.message, "error"); }
+    const s = info.settings;
+    const auto = h("input", { type: "checkbox", checked: !s.duration });
+    const dur = h("input", { type: "number", min: 0.5, max: 600, step: 0.1, value: s.duration || info.auto, disabled: !s.duration, style: { width: "90px" } });
+    auto.addEventListener("change", () => { dur.disabled = auto.checked; if (auto.checked) dur.value = info.auto; });
+    const [PW, PH] = [P.page.width, P.page.height];
+    const sizeOf = (short) => {
+      const k = short / Math.min(PW, PH), ev = (x) => Math.max(2, Math.round(x / 2) * 2);
+      return `${ev(PW * k)} × ${ev(PH * k)}`;
+    };
+    const res = h("select", this.presets.export.heights.map(x => h("option", { value: x }, `${x === 2160 ? "4K" : x + "p"} · ${sizeOf(x)}`)));
+    res.value = s.height;
+    const fps = h("select", this.presets.export.fps.map(x => h("option", { value: x }, `${x} images/s`)));
+    fps.value = s.fps;
+    const bar = h("div.pbar2", h("i"));
+    const msg = h("p.muted", "");
+    const done = h("div.form");
+    const list = h("div.vlist");
+    const paintList = (videos) => {
+      list.textContent = "";
+      for (const v of videos.slice(0, 6)) {
+        list.append(h("div.vrow", h("a", { href: v.url, target: "_blank" }, v.name),
+          h("small.muted", `${Math.round(v.size / 1e5) / 10} Mo · ${new Date(v.time * 1000).toLocaleString("fr-FR")}`)));
+      }
+    };
+    paintList(info.videos);
+    let timer = null;
+    const watch = () => {
+      clearInterval(timer);
+      timer = setInterval(async () => {
+        if (!document.body.contains(bar)) { clearInterval(timer); return; }
+        let st;
+        try { st = await get(`projects/${P.id}/video`); } catch (e) { return; }
+        const t = st.task;
+        if (!t) return;
+        bar.firstChild.style.width = Math.round((t.progress || 0) * 100) + "%";
+        msg.textContent = t.status === "error" ? "⚠ " + (t.error || "erreur") : `${Math.round((t.progress || 0) * 100)} % · ${t.message || ""}`;
+        msg.className = t.status === "error" ? "err" : "muted";
+        if (t.status === "done" || t.status === "error") {
+          clearInterval(timer);
+          go.disabled = false;
+          paintList(st.videos);
+          if (t.status === "done") {
+            done.textContent = "";
+            const m = t.meta || {};
+            done.append(h("p", "✓ Vidéo prête : ", h("a", { href: t.url, target: "_blank" }, t.url.split("/").pop())),
+              h("p.muted", `${m.width} × ${m.height}, ${m.fps} images/s, ${fmtSec(m.seconds)}${m.audio ? ", avec le son" : ", sans son"}.`),
+              h("div.row", h("button", { on: { click: () => window.open(t.url, "_blank") } }, "▶ Ouvrir la vidéo"),
+                h("button", { on: { click: () => post(`projects/${P.id}/video/reveal`).catch((e) => toast(e.message, "error")) } }, "📁 Dossier des vidéos")));
+          }
+        }
+      }, 1000);
+    };
+    const go = h("button.primary", { on: { click: async () => {
+      go.disabled = true;
+      done.textContent = "";
+      try {
+        await this.flushAll();
+        const body = { duration: auto.checked ? null : +dur.value, height: +res.value, fps: +fps.value };
+        await post(`projects/${P.id}/video`, body);
+        P.export = { duration: body.duration, height: body.height, fps: body.fps };
+        msg.textContent = "en file…";
+        watch();
+      } catch (e) { go.disabled = false; toast(e.message, "error", 9000); }
+    } } }, icon("video"), " Exporter");
+    if (info.task && ["queued", "running"].includes(info.task.status)) { go.disabled = true; watch(); }
+    modal("Exporter la vidéo", h("div.form",
+      h("p.muted", "Toute la page, les vidéos jouant dans leurs cases, avec leurs effets et leurs sons mélangés, en un fichier MP4 (H.264, AAC)."),
+      h("div.row",
+        h("label.field", h("span.lab", "Durée"), h("div.row", h("label.check", auto, ` auto (${fmtSec(info.auto)} : le plus long passage)`), dur, h("span.muted", "s"))),
+        h("label.field", h("span.lab", "Résolution"), res),
+        h("label.field", h("span.lab", "Fréquence"), fps)),
+      h("div.row", go), bar, msg, done,
+      h("span.lab", "Vidéos déjà exportées"), list), [{ label: "Fermer" }]);
   }
 
   publishDialog() {
@@ -1001,7 +865,7 @@ class App {
     const name = h("input", { value: P.published?.name || slugify(P.name) });
     modal("Publier la planche", h("div.form",
       h("label.field", h("span.lab", "Adresse"), h("div.row", h("span.muted", (this.settings.deploy?.url || "") + "/"), name, h("span.muted", "/"))),
-      h("p.muted", "La page est publique pour qui a le lien, non indexée par les moteurs de recherche. Les vidéos manquantes restent des images fixes."),
+      h("p.muted", "La page jouable est publique pour qui a le lien, non indexée par les moteurs de recherche."),
       P.published ? h("p", "Déjà publiée : ", h("a", { href: P.published.url, target: "_blank" }, P.published.url)) : null), [
       { label: "Annuler" },
       { label: "Publier", primary: true, click: async () => {
@@ -1023,102 +887,40 @@ class App {
   // ---------------------------------------------------------------- reglages
   async settingsDialog() {
     const S = await get("settings");
-    const tabs = {
-      "Machines": () => {
-        const rows = h("div.wlist");
-        const draw = () => {
-          rows.textContent = "";
-          S.workers.forEach((w, i) => {
-            const n = h("input", { value: w.name, placeholder: "Nom" }), u = h("input", { value: w.url, placeholder: "http://192.168.1.x:8188" });
-            const en = h("input", { type: "checkbox", checked: w.enabled !== false });
-            n.addEventListener("input", () => { w.name = n.value; }); u.addEventListener("input", () => { w.url = u.value; });
-            en.addEventListener("change", () => { w.enabled = en.checked; });
-            rows.append(h("div.row", en, n, u, h("button.mini", { on: { click: () => { S.workers.splice(i, 1); draw(); } } }, "✕")));
-          });
-          rows.append(h("button", { on: { click: () => { S.workers.push({ name: "PC", url: "http://", enabled: true }); draw(); } } }, "+ Ajouter une machine"));
-        };
-        draw();
-        return h("div.form", h("p.muted", "Chaque machine : ComfyUI ≥ 0.33 avec MiniMax H3, le nœud comfyui-h3-orbital et le LoRA 360 Orbit (et MiniMax Music 3 pour le son)."), rows);
-      },
-      "Intelligence": () => {
-        const prov = h("select", ["anthropic", "openai", "google", "deepseek"].map(p => h("option", { value: p }, { anthropic: "Anthropic (Claude)", openai: "OpenAI", google: "Google (Gemini)", deepseek: "DeepSeek (texte seulement)" }[p])));
-        prov.value = S.llm.provider; prov.addEventListener("change", () => { S.llm.provider = prov.value; });
-        const block = (p, label) => {
-          const k = h("input", { type: "password", value: S.llm[p].key, placeholder: "clé API" });
-          const m = h("select.model", h("option", { value: S.llm[p].model }, S.llm[p].model));
-          k.addEventListener("input", () => { S.llm[p].key = k.value; }); m.addEventListener("change", () => { S.llm[p].model = m.value; });
-          const load = async () => {
-            try {
-              const models = await get("llm/models?provider=" + p);
-              const cur = S.llm[p].model;
-              m.replaceChildren(...models.map(x => h("option", { value: x.id }, x.label === x.id ? x.id : `${x.label} (${x.id})`)));
-              if (!models.some(x => x.id === cur)) m.prepend(h("option", { value: cur }, cur));
-              m.value = cur;
-            } catch (e) { /* pas de cle ou fournisseur injoignable : on garde le modele enregistre */ }
-          };
-          if (S.llm[p].key) load();
-          return h("div.row", h("b.w8", label), k, m, h("button.mini", { title: "Recharger la liste des modèles", on: { click: async () => {
-            await put("settings", { llm: S.llm }); await load(); } } }, "↻"), h("button.mini", { on: { click: async () => {
-            try { await put("settings", { llm: S.llm }); const r = await post("llm/test", { provider: p }); toast(label + " : " + r.text, "ok"); }
-            catch (e) { toast(label + " : " + e.message, "error", 8000); }
-          } } }, "Tester"));
-        };
-        return h("div.form", h("label.field", h("span.lab", "Fournisseur utilisé"), prov),
-          block("anthropic", "Anthropic"), block("openai", "OpenAI"), block("google", "Google"), block("deepseek", "DeepSeek"),
-          h("p.muted", "Les clés restent sur ce poste (local_settings.json), jamais dans le dépôt."));
-      },
-      "fal": () => {
-        const k = h("input", { type: "password", value: S.fal.key, placeholder: "FAL_KEY" });
-        k.addEventListener("input", () => { S.fal.key = k.value; });
-        const c = h("input", { type: "number", min: 1, max: 16, value: S.fal.concurrency });
-        c.addEventListener("input", () => { S.fal.concurrency = +c.value; });
-        const r = h("select", ["480P", "768P", "2K"].map(x => h("option", { value: x }, x))); r.value = S.fal.resolution;
-        r.addEventListener("change", () => { S.fal.resolution = r.value; });
-        const pr = h("input", { type: "number", step: 0.01, value: S.fal.price_per_second });
-        pr.addEventListener("input", () => { S.fal.price_per_second = +pr.value; });
-        return h("div.form", h("label.field", h("span.lab", "Clé fal"), k), h("label.field", h("span.lab", "Rendus simultanés"), c),
-          h("label.field", h("span.lab", "Résolution"), r), h("label.field", h("span.lab", "Prix estimé ($ par seconde de vidéo)"), pr),
-          h("button", { on: { click: async () => {
-            await put("settings", { fal: S.fal }); const t = await post("fal/test");
-            toast(t.ok ? "Clé fal acceptée." : t.message, t.ok ? "ok" : "error");
-          } } }, "Tester la clé"),
-          h("p.muted", "Sur fal : MiniMax H3 + LoRA 360 Orbit, durée 5 s minimum, sans fiche perso ni vues de décor."));
-      },
-      "Publication": () => {
-        const D = S.deploy;
-        const inp = (k, ph) => { const e = h("input", { value: D[k] ?? "", placeholder: ph }); e.addEventListener("input", () => { D[k] = k === "port" ? +e.value : e.value; }); return e; };
-        const keyBox = h("pre.key", "…");
-        return h("div.form",
-          h("label.field", h("span.lab", "Adresse du site"), inp("url", "https://alive-comics.placenta.tv")),
-          h("div.row", h("label.field", h("span.lab", "Hôte SSH"), inp("host", "46.202.158.181")), h("label.field", h("span.lab", "Port"), inp("port", "65002")),
-            h("label.field", h("span.lab", "Utilisateur"), inp("user", "u335969729"))),
-          h("label.field", h("span.lab", "Dossier du site sur le serveur"), inp("root", "domains/alive-comics.placenta.tv/public_html")),
-          h("span.lab", "Clé de ce poste (à coller dans hPanel › Avancé › Accès SSH › Ajouter une clé SSH)"), keyBox,
-          h("div.row",
-            h("button", { on: { click: async () => { keyBox.textContent = (await get("publish/key")).public_key; } } }, "Créer / afficher la clé de ce poste"),
-            h("button", { on: { click: () => { navigator.clipboard?.writeText(keyBox.textContent); toast("Clé copiée.", "ok"); } } }, "Copier"),
-            h("button", { on: { click: async () => {
-              try { await put("settings", { deploy: D }); const t = await post("publish/test"); toast(t.ok ? "Connexion OK." : "Dossier introuvable sur le serveur.", t.ok ? "ok" : "error"); }
-              catch (e) { toast(e.message, "error", 9000); }
-            } } }, "Tester la connexion")));
-      },
-      "Rendu": () => {
-        const R = S.render;
-        const n = (k, label, step) => { const e = h("input", { type: "number", step: step || 1, value: R[k] }); e.addEventListener("input", () => { R[k] = +e.value; }); return h("label.field", h("span.lab", label), e); };
-        return h("div.form", n("seed", "Graine par défaut"), n("steps", "Étapes (28 recommandé)"),
-          h("p.muted", "Taille de génération : ~0,8 Mpx au format de chaque case, côté long ≤ 1344 px (limite H3)."));
-      },
-    };
-    const body = h("div.tabs");
-    const head = h("div.seg");
-    const show = (name) => { head.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.textContent === name)); body.replaceChildren(tabs[name]()); };
-    Object.keys(tabs).forEach(k => head.append(h("button", { on: { click: () => show(k) } }, k)));
-    show("Machines");
-    modal("Réglages", h("div", head, body), [
+    const D = S.deploy;
+    const inp = (k, ph) => { const e = h("input", { value: D[k] ?? "", placeholder: ph }); e.addEventListener("input", () => { D[k] = k === "port" ? +e.value : e.value; }); return e; };
+    const keyBox = h("pre.key", "…");
+    const body = h("div.form",
+      h("h4", "Publication (hébergement SSH)"),
+      h("label.field", h("span.lab", "Adresse du site"), inp("url", "https://…")),
+      h("div.row", h("label.field", h("span.lab", "Hôte SSH"), inp("host", "46.202.158.181")), h("label.field", h("span.lab", "Port"), inp("port", "65002")),
+        h("label.field", h("span.lab", "Utilisateur"), inp("user", "u335969729"))),
+      h("label.field", h("span.lab", "Dossier du site sur le serveur"), inp("root", "domains/…/public_html")),
+      h("span.lab", "Clé de ce poste (à coller dans hPanel › Avancé › Accès SSH › Ajouter une clé SSH)"), keyBox,
+      h("div.row",
+        h("button", { on: { click: async () => { keyBox.textContent = (await get("publish/key")).public_key; } } }, "Créer / afficher la clé de ce poste"),
+        h("button", { on: { click: () => { navigator.clipboard?.writeText(keyBox.textContent); toast("Clé copiée.", "ok"); } } }, "Copier"),
+        h("button", { on: { click: async () => {
+          try { await put("settings", { deploy: D }); const t = await post("publish/test"); toast(t.ok ? "Connexion OK." : "Dossier introuvable sur le serveur.", t.ok ? "ok" : "error"); }
+          catch (e) { toast(e.message, "error", 9000); }
+        } } }, "Tester la connexion")),
+      h("p.muted", `Serveur : port ${S.server?.port || 8792} (local_settings.json). ffmpeg : ${this.info.ffmpeg ? "trouvé" : "INTROUVABLE"}.`));
+    modal("Réglages", body, [
       { label: "Annuler" },
       { label: "Enregistrer", primary: true, click: async () => {
-        this.settings = await put("settings", S); this.info = await get("info"); this.pollWorkers(); toast("Réglages enregistrés.", "ok");
+        this.settings = await put("settings", S); this.info = await get("info"); toast("Réglages enregistrés.", "ok");
       } }]);
+  }
+
+  pickPageSound() {
+    pickFile("audio/*", async (file) => {
+      try {
+        const res = await uploadSound(`projects/${this.project.id}/upload?kind=page&name=${encodeURIComponent(file.name)}`, file);
+        Object.assign(this.project.pageSound = this.project.pageSound || {}, { mode: "file", file: res.file, name: file.name, rev: Date.now() / 1000 });
+        this.refreshInspector(); this.save();
+        toast(res.reused ? "Musique déjà importée : le fichier existant est réutilisé." : "Musique de la page importée.", "ok");
+      } catch (e) { toast(e.message, "error"); }
+    });
   }
 
   keys(e) {
@@ -1141,14 +943,12 @@ function pickFile(accept, cb) {
   inp.click();
 }
 
-// onglet ouvert tout de suite (geste de l'utilisateur), rempli quand la page est prete
 function pref(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } }
 function setPref(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } }
 function fmtDate(t) {
   return new Date(t * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 // note d'une planche d'apres ses pastilles : vert 1, orange 0,4, rouge 0 -> de 1 a 5 etoiles, par demi-etoile
-// (toutes vertes = 5 ; jamais revue, tout orange = 2,5 ; beaucoup de rouges -> 1)
 function score(r) {
   const n = r ? (r.ok || 0) + (r.todo || 0) + (r.redo || 0) : 0;
   if (!n) return null;
@@ -1163,10 +963,11 @@ function stars(r) {
 }
 function ratio(p) { return { aspectRatio: p && p.w && p.h ? `${p.w} / ${p.h}` : "16 / 9" }; }
 
+// onglet ouvert tout de suite (geste de l'utilisateur), rempli quand la page est prete
 function openPending(message) {
   const tab = window.open("", "_blank");
   if (tab) {
-    tab.document.write(`<!doctype html><meta charset="utf-8"><title>Alive Comics</title>
+    tab.document.write(`<!doctype html><meta charset="utf-8"><title>Alive Video</title>
       <body style="margin:0;background:#141414;color:#ece8e1;font:16px system-ui;display:grid;place-items:center;height:100vh">
       <p>${message}</p></body>`);
     tab.document.close();
@@ -1176,7 +977,6 @@ function openPending(message) {
 
 function showIn(tab, url) {
   if (tab && !tab.closed) { tab.location.href = url; return; }
-  // onglet bloque ou ferme : un lien a cliquer
   const a = h("a", { href: url, target: "_blank" }, "Ouvrir l'aperçu");
   toast(h("span", "La page est prête : ", a), "ok", 15000);
 }

@@ -22,7 +22,7 @@ from . import settings
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "data" / "published.json"
 NOFLASH = {"creationflags": 0x08000000} if os.name == "nt" else {}
-HTACCESS = """# Alive-Comics : pas d'indexation, types et cache des medias
+HTACCESS = """# Alive-Video : pas d'indexation, types et cache des medias
 Header set X-Robots-Tag "noindex, nofollow"
 AddType video/mp4 .mp4
 AddType audio/mpeg .mp3

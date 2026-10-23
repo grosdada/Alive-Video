@@ -1,8 +1,10 @@
-// Rendus canvas cote navigateur : image de depart de chaque case (taille H3), page.jpg, frames.png, vignette.
-import { genSize } from "./geometry.js";
+// Images de la page cote navigateur : page.jpg (fond, cases, images et affiches des videos, traits), frames.png
+// (traits seuls), vignette. Le lecteur pose page.jpg sous les videos et frames.png par-dessus.
 import { loadImage, upload } from "./api.js";
+import { media } from "./editor.js";
 
 // placement de l'image dans la boite de la case : couverture * zoom, decalage (ox, oy) en fraction de la boite
+// (meme calcul que app/geometry.py placement et que le lecteur)
 export function placement(bb, iw, ih, view) {
   const v = view || {};
   const zoom = Math.max(1, v.zoom || 1);
@@ -21,25 +23,6 @@ async function img(url) {
 
 const toBlob = (cv, type, q) => new Promise((ok) => cv.toBlob(ok, type, q));
 
-// image de depart d'une case a la taille de generation ; renvoie la signature (pour ne pas renvoyer deux fois)
-export async function startImage(project, geo) {
-  const panel = project.panels[geo.id];
-  if (!panel?.image) return null;
-  const [gw, gh] = genSize(geo.bbox.w, geo.bbox.h);
-  const sig = JSON.stringify([panel.image.file, panel.view || {}, Math.round(geo.bbox.w), Math.round(geo.bbox.h), gw, gh]);
-  if (panel.startSig === sig) return { sig, changed: false, size: [gw, gh] };
-  const im = await img(panel.image.url);
-  const pl = placement(geo.bbox, im.naturalWidth, im.naturalHeight, panel.view);
-  const k = gw / geo.bbox.w;
-  const cv = Object.assign(document.createElement("canvas"), { width: gw, height: gh });
-  const ctx = cv.getContext("2d");
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(im, (pl.x - geo.bbox.x0) * k, (pl.y - geo.bbox.y0) * k, pl.w * k, pl.h * k);
-  await upload(`projects/${project.id}/start/${geo.id}`, await toBlob(cv, "image/png"));
-  panel.startSig = sig;
-  return { sig, changed: true, size: [gw, gh] };
-}
-
 function polyPath(ctx, poly) {
   ctx.beginPath();
   poly.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
@@ -53,12 +36,12 @@ export async function pageImages(project, geom) {
   const ctx = cv.getContext("2d");
   ctx.fillStyle = pg.bg; ctx.fillRect(0, 0, pg.width, pg.height);
   for (const g of geom.panels) {
-    const panel = project.panels[g.id];
+    const pic = media(project.panels[g.id]);
     ctx.save(); polyPath(ctx, g.poly); ctx.clip();
     ctx.fillStyle = "#ffffff"; ctx.fill();
-    if (panel?.image) {
-      const im = await img(panel.image.url);
-      const pl = placement(g.bbox, im.naturalWidth, im.naturalHeight, panel.view);
+    if (pic) {
+      const im = await img(pic.url);
+      const pl = placement(g.bbox, pic.w, pic.h, project.panels[g.id].view);
       ctx.drawImage(im, pl.x, pl.y, pl.w, pl.h);
     }
     ctx.restore();
@@ -67,9 +50,9 @@ export async function pageImages(project, geom) {
     c.lineJoin = "miter"; c.strokeStyle = pg.stroke; c.lineWidth = pg.strokeWidth;
     for (const g of geom.panels) { polyPath(c, g.poly); c.stroke(); }
   };
-  strokes(ctx);
+  if (pg.strokeWidth > 0) strokes(ctx);
   const fr = Object.assign(document.createElement("canvas"), { width: pg.width, height: pg.height });
-  strokes(fr.getContext("2d"));
+  if (pg.strokeWidth > 0) strokes(fr.getContext("2d"));
   const th = Object.assign(document.createElement("canvas"), { width: 360, height: Math.round(360 * pg.height / pg.width) });
   th.getContext("2d").drawImage(cv, 0, 0, th.width, th.height);
   const base = `projects/${project.id}/page?name=`;

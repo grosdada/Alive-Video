@@ -62,7 +62,9 @@ SERVER_KEYS = ("edit", "extraSounds", "review")
 
 
 def merge_project(server_p, ui_p):
-    """La version de l'interface gagne (decoupage, medias, cadrage), sauf les retouches du mode edition."""
+    """La version de l'interface gagne (decoupage, medias, cadrage), sauf les retouches du mode edition : pour une
+    case connue du serveur, ce sont les siennes ; une case nouvelle (decoupage change) garde ce que l'interface y a
+    recopie."""
     out = dict(ui_p)
     out["id"], out["created"] = server_p["id"], server_p.get("created")
     for k in ("published", "export"):              # ecrits par le serveur (publication, reglages d'export)
@@ -72,12 +74,13 @@ def merge_project(server_p, ui_p):
             out.pop(k, None)
     panels = {}
     for pid, panel in (ui_p.get("panels") or {}).items():
+        known = pid in (server_p.get("panels") or {})
         old = (server_p.get("panels") or {}).get(pid, {})
         panel = dict(panel)
         for k in SERVER_KEYS:
             if k in old:
                 panel[k] = old[k]
-            else:
+            elif known:
                 panel.pop(k, None)
         panels[pid] = panel
     out["panels"] = panels

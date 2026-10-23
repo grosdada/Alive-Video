@@ -1,37 +1,28 @@
-/* Alive-Comics : mode edition de l'apercu.
+/* Alive-Video : mode edition de l'apercu (« l'editeur de case »).
  *
  * Charge par book.html seulement quand la page est servie par l'application (jamais en ligne).
- * « ✏️ Éditer » puis clic sur une case : un popup de retouche, avec un apercu agrandi de la case.
- *   - timeline : points de boucle (debut / fin), image de depart, fondu au point de boucle, vitesse, sens,
- *     courbe de mouvement (les ralentis en rouge) et « lisser la boucle » (ralentis du debut et de la fin acceleres) ;
- *   - tremble (taille, frequence, rotation, graine), couleurs, cadrage : appliques en direct par le lecteur ;
- *   - sons : volumes, remplacer, regenerer, voix off IA, ajouter un son, musique de la page (un son deja utilise
- *     ailleurs declenche une alerte avec les references ; un son deja importe n'est jamais copie deux fois) ;
- *   - regenerer la sequence : consigne en francais (l'IA reecrit le prompt), meme graine ou non, versions.
- * Case en relief (carte de profondeur, sans video) : un popup dedie (mouvement, amplitude, plan net choisi d'un
- * clic dans l'apercu, duree, declenchement, voir / recalculer la carte), couleurs, cadrage, sons, et le passage
- * relief <-> video H3 dans les deux sens.
- * Relief en couches : l'onglet Relief montre l'etat des couches (fond sans les sujets + sujets detoures, calcules par
- * SAM 3.1 + Qwen-Image-Edit sur une machine), les lance ou les relance, et la vue « Calques » les montre en couleur.
- * Tout est enregistre au fil de l'eau dans le projet (panel.edit...) et l'export est remis a jour (rapide).
+ * « ✏️ Éditer » puis clic sur une case : une fenetre de retouche, avec la case agrandie (meme rendu que la page).
+ *   - Lecture (video) : bande d'images, debut / fin, en boucle ou une fois, vitesse ;
+ *   - Couleur : saturation, luminosite, contraste, temperature, teinte (avant les effets) ;
+ *   - Cadrage : zoom et position de la video dans la case ;
+ *   - Filtres : opacite, vitesse, lecture inversee, volume, et la pile d'effets (flou, couleur, N&B / sepia / teinte,
+ *     vignette, grain, halation, aberration chromatique), ajoutes a la demande, regles, empiles, coupes, reordonnes ;
+ *     piles enregistrables en prereglages ; « copier sur toute la page » ;
+ *   - Son : volume du son de la video, sons ajoutes, musique de la page.
+ * Tout est enregistre au fil de l'eau (panel.edit, panel.view...) ; l'export video applique exactement les memes reglages.
+ * Ouvrir directement en edition : ?edit=1 ; sur une case : ?edit=1&case=p2.
  */
 (function () {
   "use strict";
   const C = window.AliveBookCtl, P = window.AlivePlayer;
   if (!C || !P) return;
-  const KEYS = ["shake", "grade", "frame", "range", "xfade", "speed", "bounce", "start", "ease"];
-  const SHAKES = {
-    aucun: { size: 0, freq: 0.2, rot: 0 }, leger: { size: 0.4, freq: 0.2, rot: 0.046 },
-    moyen: { size: 0.8, freq: 0.2, rot: 0.092 }, fort: { size: 1.3, freq: 0.2, rot: 0.143 },
-    nerveux: { size: 0.9, freq: 1.1, rot: 0.2 },
-  };
-  const SHAKE_NAMES = { aucun: "Aucun", leger: "Léger", moyen: "Moyen", fort: "Fort", nerveux: "Nerveux" };
-  let on = false, cur = null, pop = null, lastTab = "loop", userPos = null;
-  const projects = new Map();          // projet -> json (rendus, sons, retouches enregistrees)
-  const analyses = new Map();          // video -> {thumbs, motion}
-  const prepared = {};                 // page -> promesse (export remis au format du mode edition)
+  let on = false, cur = null, pop = null, lastTab = "filters", userPos = null, spec = null, userPresets = null;
+  const projects = new Map();          // projet -> json
+  const thumbsCache = new Map();       // video -> vignettes
+  const prepared = {};                 // page -> promesse (export remis a jour)
   const clone = (o) => o == null ? o : JSON.parse(JSON.stringify(o));
   const fmt = (v, d = 2) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString("fr-FR");
+  const newId = () => Math.random().toString(16).slice(2, 8);
 
   // ------------------------------------------------------------------ outils
   function h(sel, attrs, ...kids) {
@@ -77,6 +68,10 @@
     el.addEventListener(ev, ok, { once: true });
     el.addEventListener("error", ko, { once: true });
   });
+  async function loadSpec() {
+    if (!spec) spec = await api("/api/presets");
+    return spec;
+  }
 
   // ------------------------------------------------------------------ projet de chaque page
   let bookPages = null;
@@ -92,61 +87,54 @@
     return projects.get(pid);
   }
 
-  // enregistre (retouches, volumes...) puis remet l'export a jour ; une requete a la fois, dans l'ordre
+  // enregistre (retouches, cadrage, volumes...) puis remet la page jouable a jour ; une requete a la fois, dans l'ordre
   let chain = Promise.resolve();
   function saveEdit(i, panelId, body, opts) {
     opts = opts || {};
     const run = async () => {
       const pid = await projectOf(i);
-      const payload = Object.keys(body).length ? body : { refresh: 1 };      // corps vide = remonter l'export
+      const payload = Object.keys(body).length ? body : { refresh: 1 };
       const res = await api(`/api/projects/${pid}/edit/${panelId}`, Object.assign({}, payload, C.kind === "book" ? { book: C.id } : {}));
       projects.set(pid, res.project);
       const pg = C.B.pages[i], old = pg.data;
       pg.data = res.page;
-      const stamp = String(Date.now());
-      const encoded = new Set(res.encoded || []);
-      if (encoded.size || opts.sounds || opts.video || opts.relief) pg.stamp = stamp;      // fichiers changes : anti-cache
       if (cur && cur.pid === pid) { cur.project = res.project; cur.panel = res.project.panels[cur.id] || {}; }
       if (i !== C.cur() || opts.noApply) {
-        return Object.assign(res, { changed: encoded.size > 0 || JSON.stringify(old) !== JSON.stringify(res.page) });
+        return Object.assign(res, { changed: JSON.stringify(old) !== JSON.stringify(res.page) });
       }
       const inst = C.inst();
-      let remount = false;
+      const stamp = opts.sounds ? String(Date.now()) : null;
+      if (stamp) pg.stamp = stamp;
+      inst.duration = Math.max(0.2, res.page.duration || inst.duration);
+      inst.data.duration = res.page.duration; inst.data.fps = res.page.fps; inst.fps = res.page.fps || inst.fps;
       for (const e of res.page.panels) {
         const st = inst.panels.find(s => s.p.id === e.id);
-        const isRelief = !!e.depth && !e.video;
-        if (st && !!st.relief !== isRelief) { remount = true; continue; }    // relief <-> video : on remonte la page
-        if (st && st.relief) {
-          if (opts.sounds === e.id || opts.relief === e.id) P.updateRelief(st, e, stamp);
-          if (cur && cur.st === st && opts.sounds === e.id) renderTab();
-          continue;
-        }
-        const video = encoded.has(e.id) || opts.video === e.id, sounds = opts.sounds === e.id;
-        if (!video && !sounds) continue;
-        if (!st || !e.video) { remount = remount || !!e.video; continue; }
-        P.updatePanel(st, e, stamp, !video);
-        if (cur && cur.st === st) {
-          if (video) { delete cur.fx.range; delete cur.fx.start; delete cur.fx.xfade; delete cur.fx.ease; }
-          P.setFx(st, clone(cur.fx));
-          if (video) loadTimeline();
-          if (sounds) renderTab();
+        if (!st) continue;
+        const mine = cur && cur.st === st;
+        const sameMedia = JSON.stringify(st.p.media || null) === JSON.stringify(e.media || null);
+        const sameMore = JSON.stringify(st.p.more || null) === JSON.stringify(e.more || null);
+        if (!sameMedia || !sameMore || (opts.sounds === e.id)) {
+          const entry = mine ? Object.assign({}, e, { fx: clone(cur.fx), view: clone(cur.view) }) : e;
+          P.updatePanel(st, entry, stamp);
+        } else if (!mine) {
+          P.setFx(st, e.fx); P.setView(st, e.view);
         }
       }
-      if (remount) { close(); C.remount(stamp); }
+      if (cur && opts.sounds === cur.id && lastTab === "sound") renderTab();
       return res;
     };
     chain = chain.then(run, run);
     return chain;
   }
 
-  // la premiere fois qu'une page passe en edition : export remis au format du mode edition (tremble dans le lecteur)
+  // la premiere fois qu'une page passe en edition : la page jouable est remise a jour (reglages du projet)
   function prepare(i) {
     if (!prepared[i]) {
       prepared[i] = (async () => {
         banner("Préparation de la page pour l'édition…");
         try {
           const res = await saveEdit(i, "_", {}, { noApply: true });
-          if (res.changed && i === C.cur()) C.remount(C.B.pages[i].stamp);
+          if (res.changed && i === C.cur()) C.remount(String(Date.now()));
         } finally { banner(null); }
       })().catch((e) => { prepared[i] = null; toast("⚠ " + e.message, 6000); throw e; });
     }
@@ -164,11 +152,14 @@
     if (hint) hint.classList.add("off");
     prepare(C.cur()).then(() => {
       renderDots();
-      toast("Cliquez sur une case pour la retoucher. Pastille en haut à droite : à voir / OK / à retoucher.", 5000);
+      const want = (location.search.match(/[?&]case=([\w-]+)/) || [])[1];
+      const st = want && C.inst().panels.find(s => s.p.id === want);
+      if (st) { pick(st); history.replaceState(null, "", location.href.replace(/([?&])case=[\w-]+&?/, "$1").replace(/[?&]$/, "")); }
+      else toast("Cliquez sur une case pour la retoucher. Pastille en haut à droite : à voir / OK / à retoucher.", 5000);
     }).catch(() => {});
   }
   C.button.addEventListener("click", () => setMode(!on));
-  if (/[?&]edit=1\b/.test(location.search)) setTimeout(() => setMode(true), 300);     // ouvert depuis l'accueil : « Éditer »
+  if (/[?&]edit=1\b/.test(location.search)) setTimeout(() => setMode(true), 300);     // ouvert depuis l'application
   document.addEventListener("alive-page", (e) => {
     close();
     removeDots();
@@ -178,7 +169,7 @@
   // ------------------------------------------------------------------ pastilles de suivi : a voir / OK / a retoucher
   const REVIEW = { todo: ["#f2a33c", "À voir"], ok: ["#45b56a", "OK"], redo: ["#e0483e", "À retoucher"] };
   let dotsEl = null, menuEl = null, sumEl = null;
-  const pidOf = {};                    // page -> projet
+  const pidOf = {};
   const reviewOf = (pid, id) => (((projects.get(pid) || {}).panels || {})[id] || {}).review || "todo";
 
   async function renderDots() {
@@ -237,9 +228,8 @@
     summary();
     saveEdit(i, id, { review: v }, { noApply: true }).catch((e) => toast("⚠ " + e.message));
   }
-  // compteur : la page, et tout le livre
   async function summary() {
-    if (!sumEl) {                         // a cote du titre
+    if (!sumEl) {
       sumEl = h("span.ae-sum", { title: "Suivi des cases : OK · à voir · à retoucher" });
       (document.getElementById("where") || C.button).after(sumEl);
     }
@@ -270,13 +260,6 @@
   document.addEventListener("keydown", (e) => {
     const t = e.target instanceof Element ? e.target : document.body;
     if (e.key === "Escape" && cur && !t.closest("input, textarea, select")) close();
-    // barre espace : lecture / pause de la case ouverte (sauf en tapant du texte)
-    if (e.code === "Space" && cur && cur.togglePlay && !t.closest("textarea, select, input:not([type=range]):not([type=checkbox])")) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (document.activeElement && document.activeElement.closest(".ae-pop button")) document.activeElement.blur();
-      cur.togglePlay();
-    }
   }, true);
 
   // retour a l'accueil de l'application, et la planche affichee dans l'application
@@ -293,27 +276,21 @@
   })();
 
   async function pick(st) {
-    if (st.static) { toast("Image fixe : cette case n'a pas de vidéo (lui donner une action dans l'application)."); return; }
+    if (!st.kind) { toast("Case vide : y déposer une vidéo ou une image dans l'application (✎ Planche)."); return; }
     try { await prepare(C.cur()); } catch (_) { return; }
     if (cur && cur.st === st) return;
     close();
     const i = C.cur();
     const pid = await projectOf(i);
     let pj;
-    try { pj = await project(pid); } catch (e) { toast("⚠ " + e.message); return; }
-    if (!st.el.isConnected) return;                    // la page a change entre-temps
+    try { [pj] = await Promise.all([project(pid), loadSpec()]); } catch (e) { toast("⚠ " + e.message); return; }
+    if (!st.el.isConnected) return;
     cur = { st, i, pid, id: st.p.id, project: pj, panel: pj.panels[st.p.id] || {}, fx: clone(st.p.fx || {}),
-            fx0: clone(st.p.fx || {}), edit0: clone((pj.panels[st.p.id] || {}).edit || {}), touched: new Set(),
-            pending: {}, timer: null, playing: true, sound: false };
+            view: clone(st.p.view || { zoom: 1, ox: 0, oy: 0 }), fx0: clone(st.p.fx || {}),
+            view0: clone(st.p.view || { zoom: 1, ox: 0, oy: 0 }), pending: {}, timer: null };
     st.el.classList.add("ac-sel");
     P.setPinned(st, true);
-    if (st.relief) {
-      const d = st.p.depth || {};
-      cur.relief = { preset: d.preset, amount: d.amount, focus: d.focus, duration: d.duration, trigger: d.trigger };
-      cur.relief0 = clone(cur.relief);
-      cur.relief0Saved = clone((pj.panels[st.p.id] || {}).relief || {});
-      if (!["relief", "color", "frame", "sound", "treat"].includes(lastTab)) lastTab = "relief";
-    } else if (["relief", "treat"].includes(lastTab)) lastTab = "loop";
+    if (st.kind !== "video" && lastTab === "play") lastTab = "filters";
     build();
   }
 
@@ -323,12 +300,8 @@
     const c = cur;
     cur = null;
     P.setPinned(c.st, false);
-    if (c.sound) P.setPanelSound(c.st, false);
-    c.st.freeze = false; c.st.freeShake = false;
-    if (c.view) P.removeView(c.st, c.view);
-    if (c.rview) c.rview.remove();
-    clearTimeout(c.layTimer);
-    if (c.st.relief) P.reliefShowMap(c.st, false);
+    P.scrub(c.st, null);
+    if (c.view3) c.view3.remove();
     c.st.el.classList.remove("ac-sel");
     cancelAnimationFrame(c.raf);
     if (pop) pop.remove();
@@ -336,23 +309,18 @@
   }
 
   // ------------------------------------------------------------------ retouches
-  function change(key, fn) {
+  function change(fn) {
     fn(cur.fx);
-    cur.touched.add(key);
     P.setFx(cur.st, clone(cur.fx));
     queue({ edit: true });
     drawTimeline();
-    if (cur.shakeInfo) cur.shakeInfo();
   }
-  function editPayload(c) {
-    const e = {};
-    for (const k of KEYS) {
-      if ((c.touched.has(k) || k in c.edit0) && c.fx[k] !== undefined) e[k] = c.fx[k];
-    }
-    return e;
+  function changeView(fn) {
+    fn(cur.view);
+    P.setView(cur.st, clone(cur.view));
+    queue({ view: true });
   }
   function queue(part) {
-    if (part.volumes) part.volumes = Object.assign({}, cur.pending.volumes, part.volumes);
     Object.assign(cur.pending, part);
     clearTimeout(cur.timer);
     status("…");
@@ -363,17 +331,14 @@
     if (!c || !Object.keys(c.pending).length) return;
     clearTimeout(c.timer);
     const body = {};
-    if (c.pending.edit) body.edit = editPayload(c);
-    if (c.pending.volumes) body.volumes = c.pending.volumes;
+    if (c.pending.edit) body.edit = clone(c.fx);
+    if (c.pending.view) body.view = clone(c.view);
     if (c.pending.extra) body.extra = c.pending.extra;
     if (c.pending.pageVolume != null) body.pageVolume = c.pending.pageVolume;
-    if (c.pending.relief) {                 // seulement les reglages choisis (deja enregistres ou touches ici)
-      const keep = new Set([...Object.keys(c.relief0Saved || {}), ...(c.reliefTouched || [])]);
-      body.relief = Object.fromEntries(Object.entries(c.relief).filter(([k, v]) => keep.has(k) && v != null));
-    }
-    const sounds = c.pending.extra ? c.id : null;      // son ajoute retire : reconstruire les couches
+    const sounds = c.pending.extra ? c.id : null;
+    const reverseNow = !!(c.fx.reverse && !(c.st.p.media || {}).rev);
     c.pending = {};
-    status("enregistrement…");
+    status(reverseNow ? "préparation de la lecture à l'envers…" : "enregistrement…");
     saveEdit(c.i, c.id, body, { sounds }).then(() => { if (cur === c) status("✓ enregistré"); })
       .catch((e) => { if (cur === c) status("⚠ " + e.message, true); else toast("⚠ " + e.message); });
   }
@@ -385,117 +350,54 @@
   }
   function revert() {
     const c = cur;
-    c.fx = clone(c.fx0);
-    c.touched = new Set();
-    P.setFx(c.st, clone(c.fx));
+    c.fx = clone(c.fx0); c.view = clone(c.view0);
+    P.setFx(c.st, clone(c.fx)); P.setView(c.st, clone(c.view));
     clearTimeout(c.timer);
     c.pending = {};
     status("enregistrement…");
-    const body = { edit: c.edit0 };
-    if (c.st.relief) {
-      c.relief = clone(c.relief0);
-      P.setRelief(c.st, c.relief);
-      body.relief = c.relief0Saved;
-    }
-    saveEdit(c.i, c.id, body).then(() => { if (cur === c) status("✓ retouches annulées"); })
+    saveEdit(c.i, c.id, { edit: clone(c.fx0), view: clone(c.view0) }).then(() => { if (cur === c) status("✓ retouches annulées"); })
       .catch((e) => status("⚠ " + e.message, true));
     renderTab();
     drawTimeline();
   }
 
-  // ------------------------------------------------------------------ popup
+  // ------------------------------------------------------------------ fenetre
   function build() {
-    const st = cur.st, p = st.p, pg = C.B.pages[cur.i];
-    const sndBtn = h("button.ae-ib", { title: "Écouter les sons de la case pendant la retouche" }, "🔇");
-    sndBtn.onclick = () => {
-      cur.sound = !cur.sound;
-      P.setPanelSound(st, cur.sound);
-      sndBtn.textContent = cur.sound ? "🔊" : "🔇";
-      sndBtn.classList.toggle("on", cur.sound);
-    };
+    const st = cur.st, p = st.p, pg = C.B.pages[cur.i], video = st.kind === "video";
     const dot = h("button.ae-dot.ae-dot-head", { type: "button", dataset: { panel: p.id } });
     paintDot(dot, reviewOf(cur.pid, p.id));
     dot.addEventListener("click", () => reviewMenu(dot, cur.i, cur.pid, p.id));
     const bigBtn = h("button.ae-ib", { title: "Agrandir / réduire la fenêtre (on peut aussi tirer le coin en bas à droite)" }, "⤢");
-    const head = h("div.ae-head", dot, h("b", `Case ${p.id}`), h("span.ae-sub", pg.title || ""), h("span.ae-sp"), bigBtn, sndBtn,
-                   h("button.ae-ib", { title: "Fermer (Échap)", on: { click: close } }, "✕"));
-    // apercu agrandi : une vue de plus sur la case, avec les memes retouches ; il suit la taille de la fenetre
+    const head = h("div.ae-head", dot, h("b", `Case ${p.id}`), h("span.ae-sub", (p.media && p.media.kind === "image") ? "image" : "vidéo"),
+                   h("span.ae-sp"), bigBtn, h("button.ae-ib", { title: "Fermer (Échap)", on: { click: close } }, "✕"));
+    // apercu agrandi : la case calculee dans son propre canevas (memes passes que la page et que l'export)
     const ar = (p.rect[2] - p.rect[0]) / Math.max(1, p.rect[3] - p.rect[1]);
     const stage = h("div.ac-view.ae-stage");
-    if (st.relief) {                       // relief : sa propre vue WebGL ; un clic dans l'apercu choisit le plan net
-      cur.rview = P.addReliefView(st, stage);
-      stage.title = "Clic : choisir le plan net (ce qui ne bouge pas)";
-      stage.style.cursor = "crosshair";
-      stage.addEventListener("click", (e) => {
-        const r = stage.getBoundingClientRect();
-        const z = P.reliefDepthAt(st, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
-        if (z == null) return;
-        changeRelief("focus", Math.round(z * 1000) / 1000);
-        if (lastTab === "relief") renderTab();
-        toast(`Plan net : ${fmt(z)} (ce point ne bouge plus, le reste tourne autour).`);
-      });
-    } else {
-      cur.view = P.addView(st, stage);
-    }
-    const playBtn = h("button.ae-btn", { title: "Lecture / pause (barre espace) : en pause, le tremblé continue sur l'image fixe" });
-    const syncPlay = () => {
-      st.freeze = !cur.playing; st.freeShake = !cur.playing;
-      playBtn.textContent = cur.playing ? "⏸ Pause (espace)" : "▶ Lecture (espace)";
-    };
-    cur.togglePlay = () => { cur.playing = !cur.playing; syncPlay(); };
-    playBtn.onclick = cur.togglePlay;
-    if (st.relief) {
-      cur.togglePlay = () => P.reliefPlay(st);
-      playBtn.onclick = cur.togglePlay;
-      playBtn.textContent = "▶ Jouer le mouvement (espace)";
-      playBtn.title = "Un tour du mouvement, comme au clic du lecteur";
-    } else syncPlay();
+    cur.view3 = P.addView(st, stage);
+    const playBtn = h("button.ae-btn", { title: "Lecture / pause de toute la page (barre espace)" });
+    const inst = C.inst();
+    const syncPlay = () => { playBtn.textContent = inst.playing ? "⏸ Pause" : "▶ Lecture"; };
+    playBtn.onclick = () => { P.scrub(st, null); C.togglePlay(); syncPlay(); };
+    const restart = h("button.ae-btn", { title: "Revenir au début de la page", on: { click: () => P.seek(inst, 0) } }, "⏮");
     const info = h("span.ae-info");
-    const canvas = st.relief ? null : h("canvas.ae-tl", { width: 864, height: 150 });
-    if (canvas) { canvas.style.width = "100%"; canvas.style.height = "75px"; }
+    const canvas = video ? h("canvas.ae-tl", { width: 864, height: 120 }) : null;
+    if (canvas) { canvas.style.width = "100%"; canvas.style.height = "60px"; }
     const tabs = h("div.ae-tabs");
     const tabBody = h("div.ae-tab");
-    const NAMES = st.relief ? { relief: "Relief", color: "Couleur", frame: "Cadrage", sound: "Son", treat: "Vidéo H3" }
-                            : { loop: "Boucle", shake: "Tremblé", color: "Couleur", frame: "Cadrage", sound: "Son", regen: "Régénérer" };
+    const NAMES = video ? { play: "Lecture", color: "Couleur", frame: "Cadrage", filters: "Filtres", sound: "Son" }
+                        : { color: "Couleur", frame: "Cadrage", filters: "Filtres", sound: "Son" };
     for (const [k, label] of Object.entries(NAMES)) {
       tabs.append(h("button", { dataset: { tab: k }, on: { click: () => { lastTab = k; renderTab(); } } }, label));
     }
+    if (!NAMES[lastTab]) lastTab = "filters";
     const foot = h("div.ae-foot", h("span.ae-status", "retouches enregistrées automatiquement"), h("span.ae-sp"),
-                   h("button.ae-btn", { title: "Remettre la case comme à l'ouverture du popup", on: { click: revert } }, "↺ Annuler mes retouches"),
+                   h("button.ae-btn", { title: "Remettre la case comme à l'ouverture de la fenêtre", on: { click: revert } }, "↺ Annuler mes retouches"),
                    h("button.ae-btn.ae-main", { on: { click: close } }, "Fermer"));
-    let extraRow = null;
-    if (st.relief) {
-      const mapBtn = h("button.ae-btn", { title: "Voir la profondeur (blanc = proche)" }, "👁 Profondeur");
-      const layBtn = h("button.ae-btn", { title: "Voir les calques : bleu = sujet du fond, orange = sujet de devant" }, "🧩 Calques");
-      const view = (v) => {
-        cur.showMap = cur.showMap === v ? false : v;
-        P.reliefShowMap(st, cur.showMap);
-        mapBtn.classList.toggle("ae-main", cur.showMap === true); layBtn.classList.toggle("ae-main", cur.showMap === "layers");
-      };
-      mapBtn.onclick = () => view(true);
-      layBtn.onclick = () => view("layers");
-      const redo = h("button.ae-btn", { title: "Recalculer la carte de profondeur (Depth Anything V2 Small, ~1 s)" }, "↻ Recalculer la carte");
-      redo.onclick = async () => {
-        const c = cur;
-        redo.disabled = true; status("carte de profondeur…");
-        try {
-          const r = await api(`/api/projects/${c.pid}/depth/${c.id}`, { force: true });
-          await saveEdit(c.i, c.id, {}, { relief: c.id });
-          if (cur === c) status(`✓ carte recalculée en ${fmt(r.seconds, 1)} s`);
-        } catch (e) { status("⚠ " + e.message, true); }
-        redo.disabled = false;
-      };
-      extraRow = h("div.ae-row", mapBtn, layBtn, redo, h("span.ae-note", "Clic dans l'image : plan net."));
-    }
     pop = h("div.ae-pop", head,
-            h("div.ae-body", h("div.ae-stagebox", stage), h("div.ae-row", playBtn, info), extraRow, canvas, tabs, tabBody), foot);
+            h("div.ae-body", h("div.ae-stagebox", stage), h("div.ae-row", playBtn, restart, info), canvas, tabs, tabBody), foot);
     document.body.append(pop);
     Object.assign(cur, { canvas, info, tabBody, tabs });
-    if (st.relief) {                        // le relief n'a ni timeline ni compteur d'images
-      cur.canvas = null;
-      info.textContent = "photo en relief · aucun calcul vidéo";
-    }
-    try {                                   // derniere taille choisie
+    try {
       const sz = JSON.parse(localStorage.getItem("ae-size") || "null");
       if (sz) { pop.style.width = Math.min(sz[0], innerWidth - 16) + "px"; pop.style.height = Math.min(sz[1], innerHeight - 24) + "px"; }
     } catch (_) { /* stockage indisponible */ }
@@ -503,7 +405,7 @@
       if (!pop) return;
       const body = pop.querySelector(".ae-body");
       const W = Math.max(200, body.clientWidth - 30);
-      const H = pop.style.height ? Math.max(160, pop.clientHeight * 0.46) : 250;
+      const H = pop.style.height ? Math.max(160, pop.clientHeight * 0.42) : 240;
       let ph = Math.min(H, W / ar), pw = ph * ar;
       if (pw > W) { pw = W; ph = W / ar; }
       stage.style.width = pw + "px"; stage.style.height = ph + "px";
@@ -536,16 +438,21 @@
       fitStage();
     };
     placePop(head);
-    if (!st.relief) { bindTimeline(canvas); loadTimeline(); }
+    if (video) { bindTimeline(canvas); loadThumbs(); }
     renderTab();
     const loop = () => {                  // tete de lecture et compteur
-      if (!cur || !pop || st.relief) return;
-      const f = P.frameOf(st);
-      if (f !== cur.lastF) {
-        cur.lastF = f;
-        info.textContent = `image ${f} · ${fmt(f / st.inst.fps, 2)} s / ${fmt((p.frames - 1) / st.inst.fps, 2)} s`;
-        drawTimeline();
-      }
+      if (!cur || !pop) return;
+      syncPlay();
+      const m = st.p.media || {};
+      if (video) {
+        const f = P.frameOf(st);
+        const key = f + "|" + inst.t.toFixed(2);
+        if (key !== cur.lastKey) {
+          cur.lastKey = key;
+          info.textContent = `image ${f} · ${fmt(f / (m.fps || 25), 2)} s de la vidéo · page ${fmt(inst.t, 1)} s / ${fmt(inst.duration, 1)} s`;
+          drawTimeline();
+        }
+      } else info.textContent = `page ${fmt(inst.t, 1)} s / ${fmt(inst.duration, 1)} s`;
       cur.raf = requestAnimationFrame(loop);
     };
     loop();
@@ -553,7 +460,7 @@
 
   function placePop(head) {
     const r = cur.st.el.getBoundingClientRect();
-    const w = pop.offsetWidth || Math.min(460, innerWidth - 16);
+    const w = pop.offsetWidth || Math.min(480, innerWidth - 16);
     let x = r.left + r.width / 2 > innerWidth / 2 ? 12 : innerWidth - w - 12;
     let y = 64;
     if (userPos) { x = userPos[0]; y = userPos[1]; }
@@ -583,181 +490,119 @@
     head.addEventListener("pointerup", () => { d = null; });
   }
 
-  // ------------------------------------------------------------------ timeline
-  async function analyse(st, onProgress) {
-    const key = st.src;
-    if (analyses.has(key)) return analyses.get(key);
+  // ------------------------------------------------------------------ bande d'images (video)
+  async function thumbs(st, onProgress) {
+    const m = st.p.media, src = st.inst.base + m.src;
+    if (thumbsCache.has(src)) return thumbsCache.get(src);
     const v = document.createElement("video");
-    v.muted = true; v.preload = "auto"; v.src = st.src;
+    v.muted = true; v.preload = "auto"; v.src = src;
     await once(v, "loadeddata");
-    const n = st.p.frames, fps = st.inst.fps;
-    const ar = (st.p.rect[2] - st.p.rect[0]) / Math.max(1, st.p.rect[3] - st.p.rect[1]);
-    const W = 64, H = Math.max(8, Math.round(64 / ar));
-    const c = document.createElement("canvas");
-    c.width = W; c.height = H;
-    const g = c.getContext("2d", { willReadFrequently: true });
-    const NT = 10, picks = new Set(Array.from({ length: NT }, (_, k) => Math.round(k * (n - 1) / (NT - 1))));
-    const thumbs = [], motion = new Float32Array(n);
-    let prev = null;
-    for (let i = 0; i < n; i++) {
+    const n = m.frames, fps = m.fps || 25, ar = m.w / Math.max(1, m.h), NT = 12, out = [];
+    for (let k = 0; k < NT; k++) {
+      const i = Math.round(k * (n - 1) / (NT - 1));
       v.currentTime = (i + 0.5) / fps;
       await once(v, "seeked");
-      g.drawImage(v, 0, 0, W, H);
-      const d = g.getImageData(0, 0, W, H).data, gray = new Float32Array(W * H);
-      for (let j = 0; j < gray.length; j++) gray[j] = 0.299 * d[4 * j] + 0.587 * d[4 * j + 1] + 0.114 * d[4 * j + 2];
-      if (prev) {
-        let s = 0;
-        for (let j = 0; j < gray.length; j++) s += Math.abs(gray[j] - prev[j]);
-        motion[i] = s / gray.length;
-      }
-      prev = gray;
-      if (picks.has(i)) {
-        const t = document.createElement("canvas");
-        t.width = 120; t.height = Math.max(8, Math.round(120 / ar));
-        t.getContext("2d").drawImage(v, 0, 0, t.width, t.height);
-        thumbs.push({ i, c: t });
-      }
-      if (onProgress && i % 8 === 0) onProgress(i / n);
+      const t = document.createElement("canvas");
+      t.width = 120; t.height = Math.max(8, Math.round(120 / ar));
+      t.getContext("2d").drawImage(v, 0, 0, t.width, t.height);
+      out.push({ i, c: t });
+      if (onProgress) onProgress((k + 1) / NT);
     }
-    motion[0] = n > 1 ? motion[1] : 0;
     v.removeAttribute("src"); v.load();
-    // activite lissee (5 images) : H3 freine au debut et a la fin de chaque boucle pour retomber sur la 1re image
-    const act = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      let sum = 0, k = 0;
-      for (let j = Math.max(1, i - 2); j <= Math.min(n - 1, i + 2); j++) { sum += motion[j]; k++; }
-      act[i] = k ? sum / k : motion[i];
-    }
-    const sa = Array.from(act).sort((a, b) => a - b), q = (x) => sa[Math.min(sa.length - 1, Math.floor(sa.length * x))] || 0;
-    const floor = q(0.1), ref = q(0.5);
-    const res = { thumbs, motion, act, n, floor, ref, slow: floor + 0.35 * (ref - floor),
-                  max: Array.from(motion).sort((a, b) => a - b)[Math.floor(n * 0.95)] || 1 };
-    analyses.set(key, res);
-    return res;
+    thumbsCache.set(src, out);
+    return out;
   }
-
-  function loadTimeline() {
+  function loadThumbs() {
     const c = cur;
-    c.ana = null;
+    c.thumbs = null;
     drawTimeline();
-    analyse(c.st, (f) => { if (cur === c) { c.progress = f; drawTimeline(); } })
-      .then((a) => { if (cur === c) { c.ana = a; drawTimeline(); } })
-      .catch((e) => { if (cur === c) { c.progress = -1; drawTimeline(); status("⚠ timeline : " + e.message, true); } });
+    thumbs(c.st, (f) => { if (cur === c) { c.progress = f; drawTimeline(); } })
+      .then((t) => { if (cur === c) { c.thumbs = t; drawTimeline(); } })
+      .catch((e) => { if (cur === c) { c.progress = -1; drawTimeline(); } });
   }
-
   const PAD = 12;
-  function xOf(i) { const cv = cur.canvas, n = cur.st.p.frames; return PAD + i / Math.max(1, n - 1) * (cv.width - 2 * PAD); }
+  function nFrames() { return Math.max(2, (cur.st.p.media || {}).frames || 2); }
+  function xOf(i) { const cv = cur.canvas; return PAD + i / Math.max(1, nFrames() - 1) * (cv.width - 2 * PAD); }
   function frameAt(x) {
-    const cv = cur.canvas, n = cur.st.p.frames;
+    const cv = cur.canvas, n = nFrames();
     return Math.max(0, Math.min(n - 1, Math.round((x - PAD) / (cv.width - 2 * PAD) * (n - 1))));
   }
-
+  function rangeOf() {
+    const n = nFrames(), r = cur.fx.range;
+    return Array.isArray(r) ? [Math.max(0, Math.min(n - 1, r[0])), Math.max(0, Math.min(n - 1, r[1]))] : [0, n - 1];
+  }
   function drawTimeline() {
     if (!cur || !cur.canvas) return;
-    const cv = cur.canvas, g = cv.getContext("2d"), st = cur.st, n = st.p.frames, a = cur.ana;
-    const Wd = cv.width, Hs = 96, Hm = 40, top = 8;
-    g.clearRect(0, 0, Wd, cv.height);
+    const cv = cur.canvas, g = cv.getContext("2d"), Wd = cv.width, Hs = cv.height - 16, top = 8;
     g.fillStyle = "#0d0d0d"; g.fillRect(0, 0, Wd, cv.height);
-    if (a) {
-      const cw = (Wd - 2 * PAD) / a.thumbs.length;
-      a.thumbs.forEach((t, k) => {             // vignettes, recadrees pour remplir leur place
+    if (cur.thumbs) {
+      const cw = (Wd - 2 * PAD) / cur.thumbs.length;
+      cur.thumbs.forEach((t, k) => {
         const sx = t.c.width, sy = t.c.height, r = cw / Hs;
         let w = sx, hh = sx / r;
         if (hh > sy) { hh = sy; w = sy * r; }
         g.drawImage(t.c, (sx - w) / 2, (sy - hh) / 2, w, hh, PAD + k * cw, top, cw - 2, Hs);
       });
-      const y0 = top + Hs + 4;
-      for (let i = 0; i < n; i++) {           // courbe de mouvement : rouge = ralenti (presque immobile)
-        const v = a.motion[i], hh = Math.max(1.5, Math.min(1, v / a.max) * Hm);
-        g.fillStyle = a.act[i] < a.slow ? "#d9534f" : "#6f9b6a";
-        const x = xOf(i);
-        g.fillRect(x - 1, y0 + Hm - hh, Math.max(2, (Wd - 2 * PAD) / n), hh);
-      }
     } else {
       g.fillStyle = "#9a948a"; g.font = "24px system-ui, sans-serif";
-      g.fillText(cur.progress === -1 ? "analyse impossible" : `analyse de la vidéo… ${Math.round((cur.progress || 0) * 100)} %`,
-                 PAD + 8, 60);
+      g.fillText(cur.progress === -1 ? "vignettes impossibles" : `vignettes… ${Math.round((cur.progress || 0) * 100)} %`, PAD + 8, 60);
     }
-    // hors boucle : assombri ; fondu : hachure ; poignees debut/fin ; image de depart ; tete de lecture
-    const xa = xOf(st.a), xb = xOf(st.b);
-    g.fillStyle = "rgba(0,0,0,.62)";
+    const [a, b] = rangeOf(), xa = xOf(a), xb = xOf(b);
+    g.fillStyle = "rgba(0,0,0,.66)";
     g.fillRect(0, 0, xa, cv.height); g.fillRect(xb, 0, Wd - xb, cv.height);
-    if (st.ease) {                           // ralentis acceleres : bleu
-      const s0 = st.loopMode ? st.lo : st.a;
-      g.fillStyle = "rgba(90,160,255,.30)";
-      if (st.ease.head) g.fillRect(xOf(s0), 0, xOf(s0 + st.ease.head) - xOf(s0), cv.height);
-      if (st.ease.tail) g.fillRect(xOf(st.b - st.ease.tail), 0, xb - xOf(st.b - st.ease.tail), cv.height);
-    }
-    if (st.xf) {
-      g.fillStyle = "rgba(242,180,92,.28)";
-      g.fillRect(xOf(st.b - st.xf), 0, xb - xOf(st.b - st.xf), cv.height);
-      g.fillRect(xa, 0, xOf(st.a + st.xf) - xa, cv.height);
-    }
     for (const x of [xa, xb]) {
-      g.fillStyle = "#f2b45c"; g.fillRect(x - 3, 0, 6, cv.height);
+      g.fillStyle = "#b36bff"; g.fillRect(x - 3, 0, 6, cv.height);
       g.fillRect(x - 9, cv.height / 2 - 16, 18, 32);
     }
-    const xh = xOf(st.home);
-    g.fillStyle = "#fff";
-    g.beginPath(); g.moveTo(xh - 9, 0); g.lineTo(xh + 9, 0); g.lineTo(xh, 14); g.closePath(); g.fill();
-    const xp = xOf(P.frameOf(st));
+    const xp = xOf(P.frameOf(cur.st));
     g.fillStyle = "#fff"; g.fillRect(xp - 1.5, 0, 3, cv.height);
+    if (cur.fx.reverse) { g.fillStyle = "#fff"; g.font = "bold 22px system-ui"; g.fillText("◀ à l'envers", Wd - 160, cv.height - 14); }
   }
-
+  // glisser sur la bande : voir une image ; poignees : debut et fin du passage
   function bindTimeline(cv) {
     let mode = null;
     const pos = (e) => (e.clientX - cv.getBoundingClientRect().left) * cv.width / cv.getBoundingClientRect().width;
     cv.addEventListener("pointerdown", (e) => {
-      const x = pos(e), st = cur.st;
+      const x = pos(e), [a, b] = rangeOf();
       cv.setPointerCapture(e.pointerId);
-      if (Math.abs(x - xOf(st.a)) < 14) mode = "a";
-      else if (Math.abs(x - xOf(st.b)) < 14) mode = "b";
-      else { mode = "scrub"; st.freeze = true; }
+      if (Math.abs(x - xOf(a)) < 14) mode = "a";
+      else if (Math.abs(x - xOf(b)) < 14) mode = "b";
+      else mode = "scrub";
       move(e);
     });
     const move = (e) => {
       if (!mode || !cur) return;
-      const f = frameAt(pos(e)), st = cur.st, n = st.p.frames;
-      if (mode === "scrub") { P.seekTo(st, f); return; }
-      const r = cur.fx.range ? cur.fx.range.slice() : [0, n - 1];
-      if (mode === "a") r[0] = Math.min(f, r[1] - 4); else r[1] = Math.max(f, r[0] + 4);
+      const f = frameAt(pos(e)), st = cur.st;
+      if (mode === "scrub") { P.scrub(st, f); drawTimeline(); return; }
+      const r = rangeOf();
+      if (mode === "a") r[0] = Math.min(f, r[1]); else r[1] = Math.max(f, r[0]);
       cur.fx.range = r;
       P.setFx(st, clone(cur.fx));
-      if (cur.shakeInfo) cur.shakeInfo();
-      P.seekTo(st, mode === "a" ? r[0] : Math.max(r[0], r[1] - 12));
+      P.scrub(st, mode === "a" ? r[0] : r[1]);
       drawTimeline();
     };
     cv.addEventListener("pointermove", move);
     const up = () => {
       if (!mode || !cur) return;
+      const st = cur.st;
       if (mode === "a" || mode === "b") {
-        const n = cur.st.p.frames, r = cur.fx.range;
+        const n = nFrames(), r = cur.fx.range;
         if (r && r[0] <= 0 && r[1] >= n - 1) delete cur.fx.range;
-        change("range", () => {});
+        change(() => {});
+        if (lastTab === "play") renderTab();
       }
-      cur.st.freeze = !cur.playing;
+      // la page se cale sur l'image choisie (si elle est dans le premier passage)
+      const f = st.scrubFrame;
+      if (f != null) {
+        const m = st.p.media, [a, b] = rangeOf(), sp = cur.fx.speed || 1;
+        const k = cur.fx.reverse ? b - f : f - a;
+        if (k >= 0) P.seek(st.inst, Math.min(st.inst.duration - 1e-3, k / ((m.fps || 25) * sp)));
+        P.scrub(st, null);
+      }
       mode = null;
     };
     cv.addEventListener("pointerup", up);
     cv.addEventListener("pointercancel", up);
-  }
-
-  // lisser la boucle : les ralentis du debut et de la fin (en rouge) sont joues plus vite, sans rien couper
-  function autoEase() {
-    const a = cur.ana, st = cur.st;
-    if (!a) { toast("Analyse de la vidéo en cours…"); return; }
-    const s0 = st.loopMode ? st.lo : st.a, b = st.b;
-    let head = 0, tail = 0;
-    while (s0 + head < b - 4 && a.act[Math.min(a.n - 1, s0 + head + 1)] < a.slow) head++;
-    while (b - tail > s0 + head + 4 && a.act[b - tail] < a.slow) tail++;
-    if (head + tail < 3) { toast("Pas de ralenti net au début ni à la fin de cette boucle."); return; }
-    let sum = 0, k = 0;
-    for (let i = s0 + 1; i <= s0 + head; i++) { sum += a.act[i]; k++; }
-    for (let i = b - tail + 1; i <= b; i++) { sum += a.act[Math.min(a.n - 1, i)]; k++; }
-    const gain = Math.round(Math.max(1.5, Math.min(3, a.ref / Math.max(0.05, sum / k))) * 10) / 10;
-    change("ease", (fx) => { fx.ease = { head, tail, gain }; });
-    toast(`Boucle lissée : ${head} images au début et ${tail} à la fin jouées ×${fmt(gain, 1)} (zones bleues).`, 5000);
-    renderTab();
   }
 
   // ------------------------------------------------------------------ onglets
@@ -779,7 +624,13 @@
       if (o.neutral == null) return;
       set(o.neutral); inp.value = to(o.neutral); show();
     });
+    if (o.disabled) inp.disabled = true;
     return h("label.ae-sl", { title: o.neutral != null ? "Double-clic : valeur neutre" : "" }, h("span.ae-lab", label), inp, val);
+  }
+  function check(label, value, onChange, title) {
+    const cb = h("input", { type: "checkbox", checked: !!value });
+    cb.onchange = () => onChange(cb.checked);
+    return h("label.ae-chk", { title: title || "" }, cb, label);
   }
 
   function renderTab() {
@@ -787,145 +638,35 @@
     for (const b of cur.tabs.children) b.classList.toggle("on", b.dataset.tab === lastTab);
     const box = cur.tabBody;
     box.textContent = "";
-    cur.shakeInfo = null;
-    ({ loop: tabLoop, shake: tabShake, color: tabColor, frame: tabFrame, sound: tabSound, regen: tabRegen,
-       relief: tabRelief, treat: tabTreat })[lastTab](box);
+    ({ play: tabPlay, color: tabColor, frame: tabFrame, filters: tabFilters, sound: tabSound })[lastTab](box);
   }
 
-  function tabLoop(box) {
-    const st = cur.st;
+  const speedRow = () => slider("Vitesse", () => cur.fx.speed || 1,
+    (v) => change((fx) => { if (Math.abs(v - 1) > 1e-3) fx.speed = v; else delete fx.speed; }),
+    { min: 0.25, max: 4, log: true, neutral: 1, fmt: (v) => "× " + fmt(v) });
+
+  function tabPlay(box) {
+    const st = cur.st, m = st.p.media, fps = m.fps || 25;
     const here = () => P.frameOf(st);
-    box.append(h("p.ae-note", "Barres rouges = ralentis : H3 freine au début et à la fin de chaque boucle pour retomber sur " +
-                 "la première image, c'est ce qui fait « un fixe ». « Lisser la boucle » les joue plus vite (zones bleues), sans " +
-                 "rien couper : la boucle reste parfaite. Poignées orange : début et fin de boucle."));
+    box.append(h("p.ae-note", "Bande d'images : glisser pour voir une image ; poignées violettes = début et fin du passage. " +
+                 "La page entière suit une seule horloge, comme la vidéo exportée."));
     box.append(h("div.ae-row",
-      h("button.ae-btn.ae-main", { on: { click: autoEase } }, "⏩ Lisser la boucle"),
-      h("button.ae-btn", { on: { click: () => change("range", (fx) => {
-        const r = fx.range ? fx.range.slice() : [0, st.p.frames - 1];
-        r[0] = Math.min(here(), r[1] - 4); fx.range = r;
-      }) } }, "⟦ Début ici"),
-      h("button.ae-btn", { on: { click: () => change("range", (fx) => {
-        const r = fx.range ? fx.range.slice() : [0, st.p.frames - 1];
-        r[1] = Math.max(here(), r[0] + 4); fx.range = r;
-      }) } }, "Fin ici ⟧"),
-      h("button.ae-btn", { title: "Image montrée au départ et après « Vue initiale »",
-                            on: { click: () => change("start", (fx) => { fx.start = here(); }) } }, "▼ Départ ici"),
-      h("button.ae-btn", { title: "Toute la vidéo, sans lissage", on: { click: () => {
-        change("range", (fx) => { delete fx.range; delete fx.start; delete fx.xfade; delete fx.ease; });
-        for (const k of ["start", "xfade", "ease"]) cur.touched.add(k);
-        renderTab();
-      } } }, "↺")));
-    const ez = () => cur.fx.ease || { head: 0, tail: 0, gain: 2 };
-    const setE = (k, v) => change("ease", (fx) => {
-      const e = Object.assign({}, ez(), { [k]: v });
-      if ((e.head || e.tail) && e.gain > 1) fx.ease = e; else delete fx.ease;
-    });
-    box.append(slider("Ralenti du début", () => ez().head, (v) => setE("head", v),
-      { min: 0, max: 40, step: 1, neutral: 0, fmt: (v) => v ? `${v} images` : "—" }));
-    box.append(slider("Ralenti de la fin", () => ez().tail, (v) => setE("tail", v),
-      { min: 0, max: 40, step: 1, neutral: 0, fmt: (v) => v ? `${v} images` : "—" }));
-    box.append(slider("Accélération", () => ez().gain, (v) => setE("gain", v),
-      { min: 1, max: 4, step: 0.1, fmt: (v) => "× " + fmt(v, 1) }));
-    const sens = h("select", {},
-      h("option", { value: "loop" }, "Boucle (vers l'avant)"), h("option", { value: "bounce" }, "Aller-retour"));
-    sens.value = st.loopMode ? "loop" : "bounce";
-    sens.onchange = () => { change("bounce", (fx) => { fx.bounce = sens.value === "bounce"; }); renderTab(); };
-    box.append(h("label.ae-sl", h("span.ae-lab", "Sens"), sens, h("span.ae-val")));
-    if (st.loopMode) {
-      box.append(slider("Fondu au raccord", () => cur.fx.xfade || 0,
-        (v) => change("xfade", (fx) => { if (v) fx.xfade = v; else delete fx.xfade; }),
-        { min: 0, max: 24, step: 1, neutral: 0, fmt: (v) => v ? `${v} images` : "aucun" }));
-    }
-    box.append(slider("Vitesse", () => cur.fx.speed || 1,
-      (v) => change("speed", (fx) => { if (v !== 1) fx.speed = v; else delete fx.speed; }),
-      { min: 0.25, max: 2, step: 0.05, neutral: 1, fmt: (v) => "× " + fmt(v) }));
-  }
-
-  let userShakes = null;              // prereglages de tremble enregistres (pour toutes les planches)
-  async function loadUserShakes() {
-    if (!userShakes) userShakes = (await api("/api/userpresets")).shake || [];
-    return userShakes;
-  }
-
-  function tabShake(box) {
-    const st = cur.st;
-    const sh = () => cur.fx.shake || { size: 0, freq: 0.2, rot: 0, seed: 0 };
-    const set = (k, v) => change("shake", (fx) => { fx.shake = Object.assign({}, sh(), { [k]: v }); });
-    const use = (p) => {                 // un prereglage garde la graine de la case
-      change("shake", (fx) => { fx.shake = { size: p.size, freq: p.freq, rot: p.rot, seed: sh().seed || 0 }; });
-      renderTab();
-    };
-    box.append(h("div.ae-row", Object.entries(SHAKES).map(([k, p]) => h("button.ae-btn", { on: { click: () => use(p) } }, SHAKE_NAMES[k]))));
-    const mine = h("div.ae-row");
-    const fillMine = () => {
-      mine.textContent = "";
-      for (const p of userShakes || []) {
-        mine.append(h("span.ae-chip",
-          h("button.ae-btn", { title: `${fmt(p.size)} % · ${fmt(p.freq)} Hz · ${fmt(p.rot)}°`, on: { click: () => use(p) } }, "★ " + p.name),
-          h("button.ae-x", { title: "Supprimer ce préréglage", on: { click: async () => {
-            try { userShakes = (await api("/api/userpresets", { kind: "shake", name: p.name, delete: true })).shake; fillMine(); }
-            catch (e) { toast("⚠ " + e.message); }
-          } } }, "✕")));
-      }
-    };
-    box.append(mine);
-    loadUserShakes().then(fillMine).catch(() => {});
-    box.append(slider("Taille", () => sh().size, (v) => set("size", v),
-      { min: 0, max: 3, step: 0.05, neutral: 0, fmt: (v) => fmt(v) + " %" }));
-    box.append(slider("Fréquence", () => sh().freq || 0.2, (v) => set("freq", v),
-      { min: 0.05, max: 4, log: true, fmt: (v) => fmt(v, 3) + " Hz" }));
-    box.append(slider("Rotation", () => sh().rot, (v) => set("rot", v),
-      { min: 0, max: 1.5, step: 0.01, neutral: 0, fmt: (v) => fmt(v) + "°" }));
-    const seed = h("input.ae-num", { type: "number", min: 0, max: 99999, value: sh().seed || 0 });
-    seed.onchange = () => set("seed", Math.max(0, Math.min(99999, +seed.value | 0)));
-    box.append(h("label.ae-sl", h("span.ae-lab", "Graine"), h("span.ae-grow", seed,
-      h("button.ae-btn", { title: "Autre graine : autre trajet du tremblé", on: { click: () => {
-        seed.value = Math.floor(Math.random() * 10000); seed.onchange();
-      } } }, "🎲")), h("span.ae-val")));
-    // boucle adaptative : le tremble fait un nombre entier de cycles entre le in et le out (toujours, en lecture) ;
-    // le bouton cale la frequence affichee sur celle qui est reellement jouee pour la boucle actuelle
-    const info = h("span.ae-note");
-    cur.shakeInfo = () => {
-      const i = P.shakeInfo(st);
-      info.textContent = i && (sh().size > 0 || sh().rot > 0)
-        ? `${i.cycles} cycle${i.cycles > 1 ? "s" : ""} sur la boucle de ${fmt(i.sec)} s, soit ${fmt(i.hz, 3)} Hz joués : raccord identique au in et au out`
-        : "aucun tremblé";
-    };
-    cur.shakeInfo();
-    box.append(h("div.ae-row",
-      h("button.ae-btn.ae-main", { title: "Adapter le tremblé aux points de boucle actuels (in / out) : la fréquence est calée sur " +
-                                     "un nombre entier de cycles, le tremblé est le même au début et à la fin de la boucle",
-                                   on: { click: () => {
-        const i = P.shakeInfo(st);
-        if (!i) { toast("Pas de tremblé sur cette case."); return; }
-        set("freq", Math.round(i.hz * 1000) / 1000);
-        renderTab();
-        toast(`Tremblé adapté à la boucle : ${i.cycles} cycle${i.cycles > 1 ? "s" : ""} en ${fmt(i.sec)} s.`);
-      } } }, "🔁 Adaptive loop"), info));
-    // enregistrer le reglage comme prereglage
-    const name = h("input.ae-txt", { placeholder: "nom du préréglage", maxLength: 40 });
-    const save = async () => {
-      const n = name.value.trim();
-      if (!n) { name.focus(); return; }
-      try {
-        userShakes = (await api("/api/userpresets", { kind: "shake", name: n, value: sh() })).shake;
-        name.value = "";
-        fillMine();
-        toast(`Préréglage « ${n} » enregistré : disponible dans toutes les pages.`);
-      } catch (e) { toast("⚠ " + e.message); }
-    };
-    name.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
-    box.append(h("div.ae-row", name, h("button.ae-btn", { on: { click: save } }, "💾 Enregistrer le préréglage")));
-    box.append(h("div.ae-row", h("button.ae-btn", { title: "Même tremblé sur toutes les cases vidéo de la page ; chaque case garde " +
-                                                    "sa graine (elles ne tremblent pas ensemble)", on: { click: () => applyAll("shake") } },
-                                 "Appliquer à toute la page")));
-    box.append(h("p.ae-note", "Le tremblé suit l'image et revient au même point au raccord de la boucle. « ⏸ Figer l'image » : " +
-                 "il continue sur l'image fixe, pour le juger."));
+      h("button.ae-btn", { on: { click: () => change((fx) => { const r = rangeOf(); r[0] = Math.min(here(), r[1]); fx.range = r; }) } }, "⟦ Début ici"),
+      h("button.ae-btn", { on: { click: () => change((fx) => { const r = rangeOf(); r[1] = Math.max(here(), r[0]); fx.range = r; }) } }, "Fin ici ⟧"),
+      h("button.ae-btn", { title: "Toute la vidéo", on: { click: () => { change((fx) => { delete fx.range; }); renderTab(); } } }, "↺ Tout le clip")));
+    const sel = h("select", {}, h("option", { value: "loop" }, "En boucle"), h("option", { value: "once" }, "Une fois, puis image figée"));
+    sel.value = cur.fx.loop === false ? "once" : "loop";
+    sel.onchange = () => { change((fx) => { if (sel.value === "once") fx.loop = false; else delete fx.loop; }); renderTab(); };
+    box.append(h("label.ae-sl", h("span.ae-lab", "Lecture"), sel, h("span.ae-val")));
+    box.append(speedRow());
+    const [a, b] = rangeOf(), sec = (b - a + 1) / fps;
+    box.append(h("p.ae-note", `Passage : ${fmt(sec)} s de vidéo, ${fmt(sec / (cur.fx.speed || 1))} s à l'écran · ` +
+                 `durée de la page : ${fmt(C.inst().duration, 1)} s (réglable à l'export).`));
   }
 
   function tabColor(box) {
     const g = () => cur.fx.grade || {};
-    const set = (k, v, neutral) => change("grade", (fx) => {
+    const set = (k, v, neutral) => change((fx) => {
       const gg = Object.assign({}, fx.grade);
       if (v === neutral) delete gg[k]; else gg[k] = v;
       if (Object.keys(gg).length) fx.grade = gg; else delete fx.grade;
@@ -938,96 +679,184 @@
     box.append(row("Température", "temp", -1, 1, 0.01, 0, (v) => v > 0 ? "chaud " + Math.round(v * 100) : v < 0 ? "froid " + Math.round(-v * 100) : "neutre"));
     box.append(row("Teinte", "hue", -30, 30, 1, 0, (v) => (v > 0 ? "+" : "") + v + "°"));
     box.append(h("div.ae-row",
-      h("button.ae-btn", { on: { click: () => { change("grade", (fx) => { delete fx.grade; }); renderTab(); } } }, "↺ Neutre"),
-      h("button.ae-btn", { title: "Mêmes couleurs pour toutes les cases vidéo de cette page", on: { click: () => applyAll("grade") } },
+      h("button.ae-btn", { on: { click: () => { change((fx) => { delete fx.grade; }); renderTab(); } } }, "↺ Neutre"),
+      h("button.ae-btn", { title: "Mêmes couleurs pour toutes les cases de cette page", on: { click: () => applyAll("grade") } },
         "Appliquer à toute la page")));
+    box.append(h("p.ae-note", "Ces couleurs passent avant les effets de l'onglet Filtres."));
   }
 
-  // meme reglage (couleurs, tremble) sur toutes les cases video de la page
+  // meme reglage (couleurs, pile d'effets) sur toutes les cases de la page qui ont une image ou une video
   async function applyAll(key) {
-    const c = cur, inst = C.inst(), others = inst.panels.filter(x => x !== c.st);
-    let val = clone(c.fx[key]);
-    if (key === "shake" && !val) val = { size: 0, freq: 0.2, rot: 0, seed: 0 };      // « aucun » explicite
-    status(`${key === "shake" ? "tremblé" : "couleurs"} : toute la page…`);
+    const c = cur, inst = C.inst(), others = inst.panels.filter(x => x !== c.st && x.kind);
+    const val = clone(c.fx[key]);
+    status(`${key === "grade" ? "couleurs" : "filtres"} : toute la page…`);
     try {
       for (const st of others) {
-        const v = clone(val);
-        if (v && key === "shake") v.seed = ((st.p.fx || {}).shake || {}).seed ?? v.seed;   // chaque case sa graine
         const fx = clone(st.p.fx || {});
-        if (v) fx[key] = v; else delete fx[key];
+        if (val && (!Array.isArray(val) || val.length)) fx[key] = key === "filters" ? val.map(f => Object.assign({}, f, { id: newId() })) : clone(val);
+        else delete fx[key];
         P.setFx(st, fx);
-        const edit = clone((c.project.panels[st.p.id] || {}).edit || {});
-        if (v) edit[key] = clone(v); else delete edit[key];
-        await saveEdit(c.i, st.p.id, { edit });
+        await saveEdit(c.i, st.p.id, { edit: fx });
       }
       if (cur === c) status(`✓ appliqué aux ${others.length + 1} cases de la page`);
     } catch (e) { status("⚠ " + e.message, true); }
   }
 
   function tabFrame(box) {
-    const fr = () => cur.fx.frame || { zoom: 1, x: 0, y: 0 };
-    const set = (k, v) => change("frame", (fx) => {
-      const f = Object.assign({}, fr(), { [k]: v });
-      if (f.zoom <= 1.001 && !f.x && !f.y) delete fx.frame; else fx.frame = f;
-    });
-    box.append(slider("Zoom", () => fr().zoom, (v) => set("zoom", v), { min: 1, max: 2, step: 0.01, neutral: 1, fmt: (v) => "× " + fmt(v) }));
-    box.append(slider("Horizontal", () => fr().x, (v) => set("x", v), { min: -1, max: 1, step: 0.01, neutral: 0, fmt: (v) => fmt(v) }));
-    box.append(slider("Vertical", () => fr().y, (v) => set("y", v), { min: -1, max: 1, step: 0.01, neutral: 0, fmt: (v) => fmt(v) }));
-    box.append(h("div.ae-row", h("button.ae-btn", { on: { click: () => { change("frame", (fx) => { delete fx.frame; }); renderTab(); } } }, "↺ Cadre d'origine")));
-    box.append(h("p.ae-note", "Zoomer pour cacher un bord ou un défaut, puis déplacer le cadre (le zoom ne quitte jamais l'image)."));
+    const st = cur.st, m = st.p.media || {}, [x0, y0, x1, y1] = st.p.rect, bw = x1 - x0, bh = y1 - y0;
+    const margins = () => {
+      const s = Math.max(bw / m.w, bh / m.h) * Math.max(1, cur.view.zoom || 1);
+      return [(m.w * s - bw) / (2 * bw), (m.h * s - bh) / (2 * bh)];
+    };
+    const norm = (k) => { const [mx, my] = margins(), M = k === "ox" ? mx : my; return M > 1e-6 ? Math.max(-1, Math.min(1, (cur.view[k] || 0) / M)) : 0; };
+    const setPos = (k, t) => changeView((v) => { const [mx, my] = margins(); v[k] = Math.round(t * (k === "ox" ? mx : my) * 10000) / 10000; });
+    const redraw = () => { renderTab(); };
+    box.append(slider("Zoom", () => cur.view.zoom || 1, (v) => changeView((w) => {
+      const nx = norm("ox"), ny = norm("oy");
+      w.zoom = v;
+      const [mx, my] = margins();
+      w.ox = nx * mx; w.oy = ny * my;
+    }), { min: 1, max: 4, step: 0.01, neutral: 1, fmt: (v) => "× " + fmt(v) }));
+    const [mx, my] = margins();
+    box.append(slider("Horizontal", () => norm("ox"), (v) => setPos("ox", v), { min: -1, max: 1, step: 0.01, neutral: 0, fmt: (v) => fmt(v), disabled: mx < 1e-4 }));
+    box.append(slider("Vertical", () => norm("oy"), (v) => setPos("oy", v), { min: -1, max: 1, step: 0.01, neutral: 0, fmt: (v) => fmt(v), disabled: my < 1e-4 }));
+    box.append(h("div.ae-row", h("button.ae-btn", { on: { click: () => { changeView((v) => { v.zoom = 1; v.ox = 0; v.oy = 0; }); redraw(); } } }, "↺ Cadre d'origine")));
+    box.append(h("p.ae-note", "La vidéo couvre toute la case ; zoomer pour recadrer, puis déplacer (on ne sort jamais de l'image). " +
+                 "Le même cadrage se règle dans l'application en glissant dans la case, molette pour zoomer."));
+  }
+
+  // ------------------------------------------------------------------ filtres
+  function fmtParam(p, v) {
+    switch (p.fmt) {
+      case "pct": return Math.round(v * 100) + " %";
+      case "ev": return (v > 0 ? "+" : "") + fmt(v) + " IL";
+      case "deg": return (v > 0 ? "+" : "") + Math.round(v) + "°";
+      case "temp": return v > 0 ? "chaud " + Math.round(v * 100) : v < 0 ? "froid " + Math.round(-v * 100) : "neutre";
+      case "tint": return v > 0 ? "magenta " + Math.round(v * 100) : v < 0 ? "vert " + Math.round(-v * 100) : "neutre";
+      case "u": return fmt(v, 1);
+      default: return fmt(v);
+    }
+  }
+  function newFilter(type) {
+    const def = spec.effects.find(e => e.type === type);
+    const f = { id: newId(), type, on: true };
+    for (const p of def.params) f[p.k] = p.def;
+    return f;
+  }
+
+  function tabFilters(box) {
+    const st = cur.st, m = st.p.media || {}, video = st.kind === "video";
+    box.append(slider("Opacité", () => cur.fx.opacity ?? 1,
+      (v) => change((fx) => { if (v < 0.999) fx.opacity = v; else delete fx.opacity; }),
+      { min: 0, max: 1, step: 0.01, neutral: 1, fmt: (v) => Math.round(v * 100) + " %" }));
+    if (video) {
+      box.append(speedRow());
+      box.append(h("div.ae-row",
+        check("Lecture inversée", cur.fx.reverse, (v) => { change((fx) => { if (v) fx.reverse = true; else delete fx.reverse; }); },
+              "La vidéo joue à l'envers (son compris)"),
+        m.audio ? null : h("span.ae-note", "· vidéo sans son")));
+      if (m.audio) {
+        box.append(slider("Volume", () => cur.fx.volume ?? 1,
+          (v) => change((fx) => { if (v < 0.999) fx.volume = v; else delete fx.volume; }),
+          { min: 0, max: 1, step: 0.01, neutral: 1, fmt: (v) => v ? Math.round(v * 100) + " %" : "muet" }));
+      }
+    }
+    const list = cur.fx.filters || [];
+    const head = h("div.ae-fxhead", h("b", "Effets"), h("span.ae-note", list.length ? "appliqués de haut en bas" : "aucun pour l'instant"));
+    const add = h("button.ae-btn.ae-main", "＋ Ajouter un effet");
+    add.onclick = () => addMenu(add);
+    head.append(h("span.ae-sp"), add);
+    box.append(head);
+    list.forEach((f, i) => box.append(filterCard(f, i, list.length)));
+    // prereglages et copie
+    const presets = h("div.ae-row.ae-presets");
+    const fill = () => {
+      presets.textContent = "";
+      for (const p of (userPresets || [])) {
+        presets.append(h("span.ae-chip",
+          h("button.ae-btn", { title: p.filters.map(f => (spec.effects.find(e => e.type === f.type) || {}).label).join(" + "),
+                               on: { click: () => { change((fx) => { fx.filters = p.filters.map(f => Object.assign({}, f, { id: newId() })); }); renderTab(); } } },
+            "★ " + p.name),
+          h("button.ae-x", { title: "Supprimer ce préréglage", on: { click: async () => {
+            try { userPresets = (await api("/api/userpresets", { kind: "filters", name: p.name, delete: true })).filters; fill(); }
+            catch (e) { toast("⚠ " + e.message); }
+          } } }, "✕")));
+      }
+    };
+    if (userPresets) fill();
+    else api("/api/userpresets").then((r) => { userPresets = r.filters || []; fill(); }).catch(() => {});
+    box.append(presets);
+    const name = h("input.ae-txt", { placeholder: "nom du préréglage", maxLength: 40 });
+    const save = async () => {
+      const n = name.value.trim();
+      if (!n) { name.focus(); return; }
+      if (!(cur.fx.filters || []).length) { toast("Ajoute d'abord des effets."); return; }
+      try {
+        userPresets = (await api("/api/userpresets", { kind: "filters", name: n, value: cur.fx.filters })).filters;
+        name.value = ""; fill();
+        toast(`Préréglage « ${n} » enregistré : disponible dans toutes les planches.`);
+      } catch (e) { toast("⚠ " + e.message); }
+    };
+    name.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+    box.append(h("div.ae-row", name, h("button.ae-btn", { on: { click: save } }, "💾 Enregistrer la pile")),
+               h("div.ae-row", h("button.ae-btn", { title: "Mêmes effets sur toutes les cases de la page (chaque case garde son grain)",
+                                                   on: { click: () => applyAll("filters") } }, "Copier les effets sur toute la page")));
+    box.append(h("p.ae-note", "Les effets sont calculés de la même façon ici et dans la vidéo exportée. " +
+                 "Les tailles (flou, grain, halation, décalage) sont en millièmes de la hauteur de la page."));
+  }
+
+  function addMenu(anchor) {
+    document.querySelector(".ae-addmenu")?.remove();
+    const r = anchor.getBoundingClientRect();
+    const menu = h("div.ae-addmenu", spec.effects.map(e => h("button", { type: "button", on: { click: () => {
+      menu.remove();
+      change((fx) => { fx.filters = (fx.filters || []).concat([newFilter(e.type)]); });
+      renderTab();
+    } } }, h("b", e.label), h("small", e.hint || ""))));
+    document.body.append(menu);
+    menu.style.left = Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth)) + "px";
+    menu.style.top = Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, r.bottom + 6)) + "px";
+    const away = (e) => { if (!menu.contains(e.target) && e.target !== anchor) { menu.remove(); document.removeEventListener("pointerdown", away, true); } };
+    setTimeout(() => document.addEventListener("pointerdown", away, true), 0);
+  }
+
+  function filterCard(f, i, n) {
+    const def = spec.effects.find(e => e.type === f.type) || { label: f.type, params: [] };
+    const edit = (fn) => change((fx) => { const g = fx.filters.find(x => x.id === f.id); if (g) fn(g); });
+    const move = (d) => { change((fx) => { const a = fx.filters; const j = i + d; [a[i], a[j]] = [a[j], a[i]]; }); renderTab(); };
+    const eye = h("button.ae-eye" + (f.on === false ? "" : ".on"), { title: f.on === false ? "Effet coupé : cliquer pour le remettre" : "Couper l'effet (sans le retirer)" },
+                  f.on === false ? "○" : "●");
+    eye.onclick = () => { edit((g) => { g.on = g.on === false; }); renderTab(); };
+    const card = h("div.ae-fx" + (f.on === false ? ".off" : ""),
+      h("div.ae-fxbar",
+        h("button.ae-mv", { title: "Monter", disabled: i === 0, on: { click: () => move(-1) } }, "▲"),
+        h("button.ae-mv", { title: "Descendre", disabled: i === n - 1, on: { click: () => move(1) } }, "▼"),
+        h("b", def.label), h("span.ae-sp"), eye,
+        h("button.ae-x", { title: "Retirer l'effet", on: { click: () => { change((fx) => { fx.filters = fx.filters.filter(x => x.id !== f.id); if (!fx.filters.length) delete fx.filters; }); renderTab(); } } }, "✕")));
+    const body = h("div.ae-fxbody");
+    for (const p of def.params) {
+      if (p.show && f[p.show[0]] !== p.show[1]) continue;
+      if (p.choices) {
+        const sel = h("select", {}, p.choices.map(([v, l]) => h("option", { value: v }, l)));
+        sel.value = f[p.k] ?? p.def;
+        sel.onchange = () => { edit((g) => { g[p.k] = sel.value; }); renderTab(); };
+        body.append(h("label.ae-sl", h("span.ae-lab", p.label), sel, h("span.ae-val")));
+      } else if (p.color) {
+        const inp = h("input", { type: "color", value: f[p.k] || p.def });
+        inp.oninput = () => edit((g) => { g[p.k] = inp.value; });
+        body.append(h("label.ae-sl", h("span.ae-lab", p.label), inp, h("span.ae-val", "")));
+      } else if (p.bool) {
+        body.append(check(p.label, f[p.k] ?? p.def, (v) => edit((g) => { g[p.k] = v; })));
+      } else {
+        body.append(slider(p.label, () => f[p.k] ?? p.def, (v) => { f[p.k] = v; edit((g) => { g[p.k] = v; }); },
+                           { min: p.min, max: p.max, step: p.step, neutral: p.def, fmt: (v) => fmtParam(p, v) }));
+      }
+    }
+    if (f.on !== false) card.append(body);
+    return card;
   }
 
   // ------------------------------------------------------------------ sons
-  function watchJobs(pid, ids, onTick, onDone) {
-    const t = setInterval(async () => {
-      let list;
-      try { list = await api(`/api/jobs?project=${encodeURIComponent(pid)}`); } catch (_) { return; }
-      const mine = list.filter(j => ids.includes(j.id));
-      if (onTick) onTick(mine);
-      if (!mine.length || mine.every(j => ["done", "error", "cancelled"].includes(j.status))) { clearInterval(t); onDone(mine); }
-    }, 2500);
-  }
-  function jobText(js) {
-    return js.map(j => j.status === "running" ? `${j.worker || "?"} ${j.progress || "calcul"}`
-                       : j.status === "queued" ? "en file" : j.status === "done" ? "terminé" : j.status).join(" · ");
-  }
-
-  function regenSoundForm(layer, label, placeholder, prev) {
-    const c = cur;
-    const ta = h("textarea", { rows: 2, placeholder });
-    const same = h("input", { type: "checkbox" });
-    const out = h("div.ae-jobs");
-    const go = h("button.ae-btn.ae-main", "Lancer");
-    go.onclick = async () => {
-      go.disabled = true;
-      out.textContent = "envoi…";
-      try {
-        const res = await api(`/api/projects/${c.pid}/regensound/${layer === "page" ? "_" : c.id}`,
-                              { layer, text: ta.value.trim(), sameSeed: same.checked });
-        const ids = res.jobs.map(j => j.id);
-        watchJobs(c.pid, ids, (js) => { out.textContent = jobText(js); }, async (js) => {
-          go.disabled = false;
-          const err = js.find(j => j.status === "error");
-          if (err) { out.textContent = "⚠ " + (err.error || "erreur"); return; }
-          out.textContent = "terminé : mise en place…";
-          if (layer === "page") { await refreshPage(c); return; }
-          await saveEdit(c.i, c.id, {}, { sounds: c.id });
-          out.textContent = "";
-          out.append("✓ nouveau son en place ");
-          if (prev) out.append(h("button.ae-btn", { on: { click: async () => {
-              await api(`/api/projects/${c.pid}/choose`, { panel: c.id, side: { audio: "A", voice: "B", foley: "F" }[layer], file: prev });
-              await saveEdit(c.i, c.id, {}, { sounds: c.id });
-              toast("Son précédent remis.");
-            } } }, "↺ Revenir au précédent"));
-        });
-        out.textContent = "en file…";
-      } catch (e) { go.disabled = false; out.textContent = "⚠ " + e.message; }
-    };
-    return h("details.ae-regen", h("summary", "↻ " + label),
-             ta, h("div.ae-row", h("label.ae-chk", same, "même graine"), go), out);
-  }
-
-  // envoi d'un son : s'il sert deja dans une planche, alerte avec les references ; deja importe = reutilise
   function confirmBox(title, lines, okLabel, note) {
     return new Promise((done) => {
       const back = h("div.ae-modal-back");
@@ -1062,132 +891,27 @@
     inp.onchange = () => { if (inp.files[0]) fn(inp.files[0]); };
     inp.click();
   }
-  // le son global de la page a change : le lecteur le recharge sans demonter la page
   async function refreshPage(c) {
     const res = await saveEdit(c.i, "_", {}, { noApply: true });
-    if (C.cur() === c.i) P.setPageSound(C.inst(), res.page.sound || null, C.B.pages[c.i].stamp || String(Date.now()));
+    if (C.cur() === c.i) P.setPageSound(C.inst(), res.page.sound || null, String(Date.now()));
     if (cur === c) renderTab();
   }
-  async function setLayer(c, layer, value) {           // remplace l'objet de la couche (mode none = retirer)
-    await api(`/api/projects/${c.pid}/panels/${c.id}`, { [layer]: value });
-    await saveEdit(c.i, c.id, {}, { sounds: c.id });
-  }
-
-  let voicePresets = null;
-  async function loadVoicePresets() {
-    if (!voicePresets) voicePresets = await api("/api/presets");
-    return voicePresets;
-  }
-  // voix off IA (MiniMax Speech sur fal) : texte, voix, emotion, langue
-  function voiceForm(c, v, onBusy) {
-    const ta = h("textarea", { rows: 3, placeholder: "Texte de la voix off (dans la langue choisie)" });
-    ta.value = v.mode === "tts" ? (v.text || "") : "";
-    const voice = h("select"), emo = h("select"), lang = h("select");
-    loadVoicePresets().then((pr) => {
-      for (const x of pr.voices) voice.append(h("option", { value: x.id }, x.label));
-      for (const x of pr.emotions) emo.append(h("option", { value: x }, x));
-      for (const x of pr.languages) lang.append(h("option", { value: x }, x));
-      voice.value = v.voice_id || "Deep_Voice_Man"; emo.value = v.emotion || "neutral"; lang.value = v.language || "French";
-    }).catch(() => {});
-    const out = h("div.ae-jobs");
-    const go = h("button.ae-btn.ae-main", "🎙 Générer la voix off (fal)");
-    go.onclick = async () => {
-      if (!ta.value.trim()) { ta.focus(); return; }
-      const old = clone(c.panel.voice || {});
-      go.disabled = true; out.textContent = "envoi…";
-      try {
-        await api(`/api/projects/${c.pid}/panels/${c.id}`, { voice: { mode: "tts", text: ta.value.trim(), voice_id: voice.value,
-          emotion: emo.value, language: lang.value, volume: old.volume ?? 1, loop: !!old.loop } });
-        let res;
-        try { res = await api(`/api/projects/${c.pid}/voice/${c.id}`, {}); }
-        catch (e) { await api(`/api/projects/${c.pid}/panels/${c.id}`, { voice: old }); throw e; }   // on remet l'ancienne voix
-        watchJobs(c.pid, res.jobs.map(j => j.id), (js) => { out.textContent = jobText(js); }, async (js) => {
-          go.disabled = false;
-          const err = js.find(j => j.status === "error");
-          if (err) { out.textContent = "⚠ " + (err.error || "erreur"); return; }
-          await saveEdit(c.i, c.id, {}, { sounds: c.id });
-          out.textContent = "✓ nouvelle voix off en place";
-        });
-        out.textContent = "en file…";
-      } catch (e) { go.disabled = false; out.textContent = "⚠ " + e.message; }
-    };
-    return h("div.ae-blk", ta, h("div.ae-row", voice, emo, lang), h("div.ae-row", go), out);
-  }
-
-  // nom lisible d'un son importe : « assets/20261014-213603-cd31-maxime-33.mp3 » -> « maxime-33.mp3 »
   const niceName = (o) => (o && (o.name || (o.file || "").split("/").pop().replace(/^\d{8}-\d{6}-[0-9a-f]{4}-/, ""))) || "";
 
   function tabSound(box) {
-    const c = cur, st = c.st, p = st.p, panel = c.panel || {}, pg = C.B.pages[c.i];
-    const vol = (key, get, set) => slider("Volume", get, (v) => { set(v); P.setLayerVolume(st, key, v); },
-                                          { min: 0, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + " %" });
+    const c = cur, st = c.st, p = st.p, panel = c.panel || {}, pg = C.B.pages[c.i], m = p.media || {};
     const block = (title, name, ...kids) => h("div.ae-snd", h("div.ae-sndh", h("b", title), h("small", name || "")), ...kids);
-    const replaceBtn = (layer, label) => h("button.ae-btn", { title: "Importer un autre fichier à la place", on: { click: () => pickAudio(async (f) => {
-      try {
-        await sendSound(`/api/projects/${c.pid}/panels/${c.id}/sound?layer=${layer}&name=${encodeURIComponent(f.name)}`, f);
-        await saveEdit(c.i, c.id, {}, { sounds: c.id });
-        toast(`${label} remplacé.`);
-      } catch (e) { toast("⚠ " + e.message); }
-    }) } }, "📁 Remplacer");
-    const removeBtn = (layer, label) => h("button.ae-btn", { on: { click: async () => {
-      if (!(await confirmBox(`Retirer ${label} de la case ?`, ["Le fichier reste dans le projet : tu pourras le remettre."], "Retirer"))) return;
-      try { await setLayer(c, layer, { mode: "none" }); toast(`${label} retiré.`); } catch (e) { toast("⚠ " + e.message); }
-    } } }, "✕ Retirer");
-    if (p.audio) {
-      const a = panel.audio || {};
-      box.append(block("Son 1 · ambiance / musique", a.name || (a.mode === "generate" ? "généré (MiniMax Music)" : ""),
-        vol("audio", () => p.audioVol ?? 1, (v) => { p.audioVol = v; queue({ volumes: { audio: v } }); }),
-        h("div.ae-row", replaceBtn("audio", "Son 1"), removeBtn("audio", "le son 1")),
-        regenSoundForm("audio", "Régénérer ce son (MiniMax Music)", "Ex. : drone grave et lent, cordes lointaines, vent", a.file)));
-    }
-    // voix off : le MP3 de David (joue depuis le debut a chaque survol), en premier ; la voix IA reste en option
-    const v = panel.voice || {};
-    const loadVoice = async (f2, zone) => {
-      if (!f2) return;
-      if (zone) zone.textContent = "envoi de " + f2.name + "…";
-      try {
-        await sendSound(`/api/projects/${c.pid}/panels/${c.id}/sound?layer=voice&name=${encodeURIComponent(f2.name)}`, f2);
-        await saveEdit(c.i, c.id, {}, { sounds: c.id });
-        toast(`Voix off chargée : ${f2.name}. Elle part du début à chaque survol de la case.`, 4500);
-      } catch (e) { if (zone) zone.textContent = "⚠ " + e.message; else toast("⚠ " + e.message); }
-    };
     const dropTarget = (el, fn) => {
       el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("over"); });
       el.addEventListener("dragleave", () => el.classList.remove("over"));
       el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("over"); fn(e.dataTransfer.files[0]); });
     };
-    const ttsBox = h("details.ae-regen", h("summary", "ou générer une voix off IA (fal)"), voiceForm(c, v));
-    if (p.voice) {
-      const kind = v.mode === "tts" ? "voix IA" : v.mode === "music" ? "musique générée" : "";
-      const once = h("input", { type: "checkbox", checked: !p.voice.loop });
-      once.onchange = async () => {
-        try { await setLayer(c, "voice", Object.assign({}, v, { loop: !once.checked })); }
-        catch (e) { toast("⚠ " + e.message); }
-      };
-      const vb = block("🎙 Voix off", (v.mode === "tts" ? (v.text || "").slice(0, 50) : niceName(v)) + (kind ? ` (${kind})` : ""),
-        vol("voice", () => p.voice.vol ?? 1, (x) => { p.voice.vol = x; queue({ volumes: { voice: x } }); }),
-        h("label.ae-chk", once, "une fois à chaque survol, depuis le début (décoché : en boucle)"),
-        h("div.ae-row",
-          h("button.ae-btn.ae-main", { on: { click: () => pickAudio((f2) => loadVoice(f2)) } }, "📁 Charger une autre voix off"),
-          removeBtn("voice", "la voix off")),
-        h("p.ae-note", "Ou glisser un MP3 sur ce cadre."),
-        v.mode === "music" ? regenSoundForm("voice", "Régénérer cette musique", "Décris la musique voulue", v.file) : null,
-        ttsBox);
-      vb.classList.add("ae-voice");
-      dropTarget(vb, (f2) => loadVoice(f2));
-      box.prepend(vb);
-    } else {
-      const vz = h("div.ae-drop.ae-voice", "🎙 Charger une voix off (MP3) : glisser le fichier ici, ou cliquer");
-      vz.onclick = () => pickAudio((f2) => loadVoice(f2, vz));
-      dropTarget(vz, (f2) => loadVoice(f2, vz));
-      box.prepend(h("div.ae-snd", h("div.ae-sndh", h("b", "🎙 Voix off"), h("small", "aucune")), vz, ttsBox));
-    }
-    if (p.foley) {
-      const fo = panel.foley || {}, h3 = (fo.engine || "h3") === "h3";
-      box.append(block("Bruitages", h3 ? "piste son de la vidéo H3" : fo.engine,
-        vol("foley", () => p.foley.vol ?? 1, (x) => { p.foley.vol = x; queue({ volumes: { foley: x } }); }),
-        h3 ? h("p.ae-note", "Ces bruitages sortent de la vidéo : régénérer la séquence pour les changer.")
-           : regenSoundForm("foley", "Régénérer les bruitages (fal)", "Ex. : pas sur le gravier, porte qui grince", fo.file)));
+    if (st.kind === "video") {
+      box.append(block("Son de la vidéo", m.audio ? "" : "aucun (vidéo muette)",
+        m.audio ? slider("Volume", () => c.fx.volume ?? 1,
+          (v) => change((fx) => { if (v < 0.999) fx.volume = v; else delete fx.volume; }),
+          { min: 0, max: 1, step: 0.01, neutral: 1, fmt: (v) => v ? Math.round(v * 100) + " %" : "muet" }) : null,
+        m.audio ? h("p.ae-note", "Il suit la vitesse (hauteur gardée) et la lecture inversée, ici comme dans l'export.") : null));
     }
     const extras = panel.extraSounds || [];
     const extraList = (skip) => extras.filter((_, k) => k !== skip).map((e) => ({ file: e.file, volume: e.volume, loop: e.loop }));
@@ -1197,32 +921,20 @@
       const send = () => queue({ extra: extras.map((e, k) => ({ file: e.file, volume: k === i ? x.vol : (p.more[k] || {}).vol ?? e.volume,
                                                                loop: k === i ? loop.checked : e.loop })) });
       loop.onchange = () => { x.loop = loop.checked; send(); };
-      const asVoice = h("button.ae-btn", { title: "Ce son est une voix off : il passe dans la voix off de la case (une fois à chaque survol)",
-                                            on: { click: async () => {
-        if (p.voice && !(await confirmBox("Remplacer la voix off actuelle ?", [`« ${niceName(v) || "voix off"} » sera remplacée par « ${niceName(ex) || "ce son"} ».`],
-                                          "Remplacer"))) return;
-        try {
-          await api(`/api/projects/${c.pid}/panels/${c.id}`, { voice: { mode: "file", file: ex.file, name: ex.name, volume: 1, loop: false } });
-          await saveEdit(c.i, c.id, { extra: extraList(i) }, { sounds: c.id });
-          toast("C'est maintenant la voix off de la case.");
-        } catch (e) { toast("⚠ " + e.message); }
-      } } }, "🎙 En faire la voix off");
       box.append(block(`Son ajouté ${i + 1}`, niceName(ex),
         slider("Volume", () => x.vol, (v2) => { x.vol = v2; P.setLayerVolume(st, "more" + i, v2); send(); },
                { min: 0, max: 1, step: 0.01, fmt: (v2) => Math.round(v2 * 100) + " %" }),
-        h("label.ae-chk", loop, "en boucle (sinon : une fois à chaque survol)"),
-        h("div.ae-row", asVoice,
-          h("button.ae-btn", { on: { click: () => { queue({ extra: extraList(i) }); flush(); } } }, "✕ Retirer"))));
+        h("label.ae-chk", loop, "en boucle (sinon : une fois, depuis le début de la page)"),
+        h("div.ae-row", h("button.ae-btn", { on: { click: () => { queue({ extra: extraList(i) }); flush(); } } }, "✕ Retirer"))));
     });
-    // ajouter un autre son (ambiance, bruitage...) par-dessus ceux qui existent
-    const drop = h("div.ae-drop", "＋ Ajouter un autre son (ambiance, bruitage…), en boucle : glisser un fichier ici, ou cliquer");
+    const drop = h("div.ae-drop", "＋ Ajouter un son à cette case (ambiance, voix, bruitage) : glisser un fichier ici, ou cliquer");
     const upload = async (f2) => {
       if (!f2) return;
       drop.textContent = "envoi de " + f2.name + "…";
       try {
-        await sendSound(`/api/projects/${c.pid}/panels/${c.id}/sound?layer=extra&name=${encodeURIComponent(f2.name)}`, f2);
+        await sendSound(`/api/projects/${c.pid}/panels/${c.id}/sound?name=${encodeURIComponent(f2.name)}`, f2);
         await saveEdit(c.i, c.id, {}, { sounds: c.id });
-        toast("Son ajouté : il joue en boucle au survol de la case, avec les autres.");
+        toast("Son ajouté : il joue avec la case, et dans l'export.");
       } catch (e) { drop.textContent = "⚠ " + e.message; }
     };
     drop.onclick = () => pickAudio(upload);
@@ -1244,259 +956,14 @@
         await refreshPage(c);
       } catch (e) { toast("⚠ " + e.message); }
     } } }, "✕ Retirer");
-    if (pg.data.sound && inst.global) {
-      box.append(block("Musique de la page", (ps.name || (ps.mode === "generate" ? "générée (MiniMax Music)" : "")),
-        slider("Volume", () => inst.global.vol, (x) => { P.setGlobalVolume(inst, x); pg.data.sound.vol = x; queue({ pageVolume: x }); },
+    if (pg.data.sound && inst.music) {
+      box.append(block("Musique de la page", ps.name || "",
+        slider("Volume", () => inst.music.vol, (x) => { P.setGlobalVolume(inst, x); pg.data.sound.vol = x; queue({ pageVolume: x }); },
                { min: 0, max: 1, step: 0.01, fmt: (x) => Math.round(x * 100) + " %" }),
         h("div.ae-row", replacePage, removePage),
-        regenSoundForm("page", ps.mode === "generate" ? "Régénérer la musique (MiniMax Music)" : "Remplacer par une musique générée (MiniMax Music)",
-                       "Décris la musique voulue", ps.file),
-        h("p.ae-note", "Elle baisse toute seule quand une case joue ses sons.")));
+        h("p.ae-note", "Elle joue en boucle sous toute la page, et dans l'export.")));
     } else {
-      box.append(block("Musique de la page", "aucune", h("div.ae-row", replacePage),
-        regenSoundForm("page", "Générer une musique (MiniMax Music)", "Décris la musique voulue", null)));
+      box.append(block("Musique de la page", "aucune", h("div.ae-row", replacePage)));
     }
-  }
-
-  // ------------------------------------------------------------------ regenerer la sequence
-  // ------------------------------------------------------------------ relief
-  const RELIEF_MOVES = [["respire", "Respire", "petite avancée vers le sujet puis retour"],
-                        ["glisse", "Glisse", "travelling latéral aller-retour"],
-                        ["tourne", "Tourne", "petit cercle de caméra autour du sujet"],
-                        ["vertigo", "Vertigo", "le sujet garde sa taille, le fond s'éloigne"]];
-  function changeRelief(k, v) {
-    (cur.reliefTouched = cur.reliefTouched || new Set()).add(k);
-    cur.relief[k] = v;
-    P.setRelief(cur.st, { [k]: v });
-    queue({ relief: true });
-  }
-  function tabRelief(box) {
-    const r = cur.relief;
-    box.append(h("div.ae-row", RELIEF_MOVES.map(([id, label, hint]) => h("button.ae-btn" + (r.preset === id ? ".ae-main" : ""),
-      { title: hint, on: { click: () => { changeRelief("preset", id); P.reliefPlay(cur.st); renderTab(); } } }, label))));
-    box.append(slider("Amplitude", () => r.amount ?? 0.025, (v) => changeRelief("amount", v),
-      { min: 0.005, max: 0.06, step: 0.001, neutral: 0.025, fmt: (v) => fmt(v * 100, 1) + " %" }));
-    box.append(slider("Plan net", () => r.focus ?? 0.7, (v) => changeRelief("focus", v),
-      { min: 0, max: 1, step: 0.01, fmt: (v) => v < 0.33 ? `${fmt(v)} (fond)` : v > 0.66 ? `${fmt(v)} (devant)` : fmt(v) }));
-    box.append(slider("Durée", () => r.duration ?? 2, (v) => changeRelief("duration", v),
-      { min: 1, max: 5, step: 0.1, fmt: (v) => fmt(v, 1) + " s" }));
-    const trig = h("select", {}, h("option", { value: "hover" }, "Au survol (en boucle douce)"), h("option", { value: "click" }, "Au clic (un tour)"));
-    trig.value = r.trigger || "hover";
-    trig.onchange = () => changeRelief("trigger", trig.value);
-    box.append(h("label.ae-sl", h("span.ae-lab", "Déclenchement"), trig, h("span.ae-val")));
-    box.append(h("p.ae-note", "Le plan net ne bouge pas : le premier plan et le fond partent en sens contraires. Le mettre sur les visages " +
-                 "évite toute déformation. Cheveux, voiles, vitres : rester sous 3 % d'amplitude. Glisser dans la case la fait aussi bouger."));
-    const lay = h("div.ae-lay");
-    box.append(lay);
-    paintLayers(cur, lay);
-  }
-
-  // relief en couches : etat, calcul / relance, utilisation. Le suivi de la tache vit avec le popup (pas avec l'onglet) :
-  // quand elle finit, la case se met a jour meme si un autre onglet est ouvert ; une requete ratee est reessayee.
-  const layersUsed = (pn) => pn.couches === true || (pn.couches !== false && pn.review !== "ok");   // comme app/layers.py
-  function syncReliefFocus(c) {             // plan net automatique (non choisi) : celui des couches, pour le curseur
-    if ((c.reliefTouched && c.reliefTouched.has("focus")) || "focus" in (c.relief0Saved || {})) return;
-    const z = (c.st.p.depth || {}).focus;
-    if (z == null || z === c.relief.focus) return;
-    c.relief.focus = c.relief0.focus = z;
-    if (lastTab === "relief" && cur === c) renderTab();
-  }
-  async function refreshLayers(c) {
-    flush();                                // retouches en attente d'abord (sinon l'apercu les perdrait)
-    await saveEdit(c.i, c.id, {}, { relief: c.id });
-    syncReliefFocus(c);
-  }
-  async function paintLayers(c, el, quiet) {
-    clearTimeout(c.layTimer);
-    if (cur !== c) return;
-    let r;
-    try { r = await api(`/api/projects/${c.pid}/layers/${c.id}`); }
-    catch (e) {
-      if (cur !== c) return;
-      if (el.isConnected) {
-        const note = el.querySelector(".ae-note");
-        if (note) note.textContent = "⚠ " + e.message + (c.layJob ? " (nouvel essai dans 5 s)" : "");
-        else el.textContent = "⚠ " + e.message;
-      }
-      if (c.layJob) c.layTimer = setTimeout(() => paintLayers(c, el, true), 5000);
-      return;
-    }
-    if (cur !== c) return;
-    const job = r.job && ["queued", "running"].includes(r.job.status) ? r.job : null, m = r.meta;
-    const finished = !job && c.layJob && r.job && r.job.id === c.layJob;
-    const on = layersUsed(c.panel || {}), shown = !!((c.st.p.depth || {}).layers);     // dans l'export de la page
-    if (el.isConnected) {
-      let line;
-      if (job) line = job.status === "queued" ? "⏳ En file d'attente (une machine libre avec les modèles des couches)…"
-                                              : `⚙ Calcul sur ${job.worker} : ${job.progress || "en cours"}…`;
-      else if (m && m.n > 0) line = `✓ ${m.n} sujet${m.n > 1 ? "s" : ""} détouré${m.n > 1 ? "s" : ""} + le fond reconstruit` +
-                                    (m.n > 1 ? (m.groups === "profondeur" ? " (devant / derrière selon la profondeur)"
-                                                                          : " (devant / derrière vus par l'IA)") : "")
-                                    + (m.crowd ? " · foule : seul le premier plan est détaché" : "")
-                                    + (on ? "" : (c.panel || {}).review === "ok" && (c.panel || {}).couches == null
-                                         ? " · case validée : cocher pour les utiliser" : " · non utilisées (nappe simple)")
-                                    + (m.last_try ? ` · dernier essai raté (${m.last_try.reason}), couches précédentes gardées` : "");
-      else if (m) line = "✗ Pas de couches : " + (m.reason || "découpe impossible") + ". La case garde la nappe simple.";
-      else line = r.possible ? "Pas encore calculées : la case utilise la nappe simple (elle peut onduler au bord des sujets)."
-                             : "Aucune machine n'a les modèles des couches (SAM 3.1, Qwen-Image-Edit) : la case garde la nappe simple.";
-      const go = h("button.ae-btn" + (m ? "" : ".ae-main"), { disabled: !!job || !r.possible,
-        title: "SAM 3.1 détoure chaque personne, Qwen-Image-Edit reconstruit le décor caché, puis l'app découpe les calques (~1 min)" },
-        m ? "↻ Recalculer (autre essai)" : "🧩 Calculer les couches");
-      go.onclick = async () => {
-        go.disabled = true;
-        try {
-          const res = await api(`/api/projects/${c.pid}/layers/${c.id}`, {});
-          c.layJob = ((res.jobs || [])[0] || {}).id || c.layJob;
-          toast("Couches en calcul sur tes machines (environ 1 min).");
-        } catch (e) { toast("⚠ " + e.message); }
-        paintLayers(c, el, true);
-      };
-      const use = h("input", { type: "checkbox", checked: on });
-      use.onchange = async () => {
-        use.disabled = true;
-        try {
-          flush();
-          await saveEdit(c.i, c.id, { couches: use.checked }, { relief: c.id });
-          syncReliefFocus(c);
-          status(use.checked ? "✓ couches utilisées" : "✓ nappe simple");
-        } catch (e) { status("⚠ " + e.message, true); }
-        paintLayers(c, el, true);
-      };
-      el.textContent = "";
-      el.append(h("b", "Relief en couches (sans dédoublement)"), h("p.ae-note", line),
-                h("div.ae-row", go, m && m.n > 0 ? h("label.ae-check", use, " Utiliser les couches") : null));
-    }
-    if (job) {
-      c.layJob = job.id;
-      c.layTimer = setTimeout(() => paintLayers(c, el, true), 3000);
-      return;
-    }
-    if (finished) {                         // la tache vient de finir : la case se met a jour (une seule fois)
-      c.layJob = null;
-      if (r.job.status === "done" && m && m.n > 0 && on) {
-        status("couches prêtes : mise à jour de la case…");
-        try { await refreshLayers(c); if (cur === c) status("✓ couches en place"); }
-        catch (e) { if (cur === c) status("⚠ " + e.message, true); }
-        if (cur === c && el.isConnected) paintLayers(c, el, true);
-      } else if (r.job.status === "error") status("⚠ couches : " + (r.job.error || "erreur"), true);
-      return;
-    }
-    if (!quiet && m && m.n > 0 && on && !shown) {      // couches pretes mais pas encore dans l'export de la page
-      try { await refreshLayers(c); } catch (_) { /* rien : l'apercu suivant les montrera */ }
-    }
-  }
-  function tabTreat(box) {
-    const c = cur, n = ((c.panel || {}).renders || []).length;
-    box.append(h("p", "Cette case est une photo en relief : une carte de profondeur, aucun calcul vidéo."));
-    box.append(h("p.ae-note", n ? `Elle a déjà ${n} rendu(s) H3 : en repassant en vidéo, le dernier choisi s'affiche tout de suite.`
-                                : "En vidéo H3, la case sera calculée sur les machines (quelques minutes) ; elle reste en relief en attendant."));
-    const go = h("button.ae-btn.ae-main", "🎬 Passer en vidéo H3");
-    go.onclick = async () => {
-      go.disabled = true;
-      try {
-        await saveEdit(c.i, c.id, { treatment: "h3" });
-        if (!n) {
-          const res = await api(`/api/projects/${c.pid}/render`, { panels: [c.id], target: "local" });
-          toast(res.errors && res.errors.length ? "⚠ " + res.errors.join(" ; ")
-                                                : "Rendu H3 lancé : la case reste en relief jusqu'à ce qu'il soit prêt.", 6000);
-        }
-      } catch (e) { go.disabled = false; toast("⚠ " + e.message); }
-    };
-    box.append(h("div.ae-row", go));
-  }
-
-  function tabRegen(box) {
-    const c = cur, panel = c.panel || {}, renders = panel.renders || [], chosen = panel.chosen || {};
-    // traitement : cette case peut devenir une photo en relief (instantane, sans video)
-    const toRelief = h("button.ae-btn", { title: "Carte de profondeur calculée en ~1 s ; la vidéo reste dans le projet" }, "🏔 Passer en relief");
-    toRelief.onclick = async () => {
-      toRelief.disabled = true;
-      try { await saveEdit(c.i, c.id, { treatment: "relief" }); toast("Case en relief : la vidéo H3 reste disponible (onglet « Vidéo H3 »)."); }
-      catch (e) { toRelief.disabled = false; toast("⚠ " + e.message); }
-    };
-    box.append(h("div.ae-row", h("span.ae-note", "Traitement : vidéo H3."), toRelief));
-    const sides = [...new Set(renders.map(r => r.side))].filter(s => ["L", "V", "R"].includes(s));
-    const SIDE = { V: "Vidéo", L: "Côté gauche", R: "Côté droit" };
-    const prompts = {};
-    const instr = h("textarea", { rows: 3, placeholder: "Ce que tu veux changer, en français. Ex. : le lecteur jette de petits " +
-                                  "coups d'œil au mangeur ; plus de mouvement ; il ne se fige pas à la fin." });
-    box.append(h("label.ae-blk", h("span.ae-lab", "Consigne"), instr));
-    const pdet = h("details.ae-regen", h("summary", "Prompt exact envoyé à H3 (anglais, modifiable)"));
-    for (const s of (sides.length ? sides : ["V"])) {
-      const r = renders.find(x => x.file === chosen[s]);
-      const ta = h("textarea", { rows: 4 });
-      ta.value = ((panel.prompt_override || {})[s]) || (r && r.prompt) || "";
-      ta.dataset.orig = ta.value;
-      prompts[s] = ta;
-      if (sides.length > 1) pdet.append(h("small", SIDE[s]));
-      pdet.append(ta);
-    }
-    box.append(pdet);
-    const same = h("input", { type: "checkbox" });
-    const target = h("select", {}, h("option", { value: "local" }, "Machines locales"), h("option", { value: "fal" }, "fal (cloud, payant)"));
-    const out = h("div.ae-jobs");
-    const go = h("button.ae-btn.ae-main", "↻ Régénérer la séquence");
-    go.onclick = async () => {
-      const edited = {};
-      for (const [s, ta] of Object.entries(prompts)) if (ta.value.trim() && ta.value !== ta.dataset.orig) edited[s] = ta.value.trim();
-      go.disabled = true;
-      out.textContent = instr.value.trim() ? "l'IA réécrit le prompt…" : "envoi…";
-      const before = Object.assign({}, chosen);
-      try {
-        const res = await api(`/api/projects/${c.pid}/regen/${c.id}`,
-                              { instruction: instr.value.trim(), prompts: edited, sameSeed: same.checked, target: target.value });
-        for (const [s, t] of Object.entries(res.prompts || {})) if (prompts[s]) { prompts[s].value = t; prompts[s].dataset.orig = t; }
-        if (instr.value.trim()) pdet.open = true;
-        out.textContent = `en file (graine ${res.seed})…`;
-        const ids = res.jobs.filter(j => j.kind === "video").map(j => j.id);
-        watchJobs(c.pid, ids, (js) => { out.textContent = `graine ${res.seed} : ` + jobText(js); }, async (js) => {
-          go.disabled = false;
-          const err = js.find(j => j.status === "error");
-          if (err) { out.textContent = "⚠ " + (err.error || "erreur de rendu"); return; }
-          out.textContent = "rendu terminé : montage…";
-          await saveEdit(c.i, c.id, { edit: Object.assign(editPayload(c), { range: undefined, start: undefined, xfade: undefined }) },
-                         { video: c.id });
-          const pj = await project(c.pid, true);
-          const pn = pj.panels[c.id] || {};
-          const nr = (pn.renders || []).slice(-1)[0];
-          if (cur === c) {
-            c.panel = pn;
-            out.textContent = "";
-            out.append(`✓ nouvelle version en place` + (nr && nr.motion != null ? ` (mouvement ${fmt(nr.motion)})` : "") + " ",
-              h("button.ae-btn", { on: { click: () => useVersion(c, before) } }, "↺ Revenir à la précédente"));
-          } else toast(`Case ${c.id} : nouvelle version en place.`);
-        });
-      } catch (e) { go.disabled = false; out.textContent = "⚠ " + e.message; }
-    };
-    box.append(h("div.ae-row", h("label.ae-chk", { title: "Même base (même graine) : pour ne changer qu'un détail" }, same, "même graine"),
-                 target, go), out);
-    // versions deja calculees
-    if (renders.length) {
-      const list = h("div.ae-versions");
-      for (const s of sides) {
-        for (const r of renders.filter(x => x.side === s).slice().reverse()) {
-          const used = chosen[s] === r.file;
-          const d = r.created ? new Date(r.created * 1000) : null;
-          list.append(h("div.ae-ver" + (used ? ".on" : ""),
-            h("span", `${sides.length > 1 ? SIDE[s] + " · " : ""}graine ${r.seed}` + (r.motion != null ? ` · mouvement ${fmt(r.motion)}` : "")
-                      + (d ? ` · ${d.toLocaleDateString("fr-FR")} ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "")),
-            r.motion != null && r.motion < 0.3 ? h("small.err", " presque immobile") : null,
-            used ? h("b", "utilisée") : h("button.ae-btn", { on: { click: () => useVersion(c, { [s]: r.file }) } }, "Utiliser")));
-        }
-      }
-      box.append(h("details.ae-regen", h("summary", `Versions déjà calculées (${renders.length})`), list));
-    }
-  }
-
-  async function useVersion(c, files) {
-    try {
-      for (const [side, file] of Object.entries(files)) {
-        if (["L", "V", "R"].includes(side)) await api(`/api/projects/${c.pid}/choose`, { panel: c.id, side, file });
-      }
-      await saveEdit(c.i, c.id, { edit: Object.assign(editPayload(c), { range: undefined, start: undefined, xfade: undefined }) },
-                     { video: c.id });
-      const pj = await project(c.pid, true);
-      if (cur === c) { c.panel = pj.panels[c.id] || {}; renderTab(); status("✓ version changée"); }
-    } catch (e) { toast("⚠ " + e.message); }
   }
 })();

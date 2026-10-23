@@ -23,6 +23,7 @@ NOFLASH = {"creationflags": 0x08000000} if os.name == "nt" else {}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mpg", ".mpeg", ".mts", ".m2ts", ".wmv", ".flv", ".ogv", ".gif"}
 PROXY_MAX = 1280
 MAX_FPS = 60
+BT709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"   # balises completes (matrice, primaires, transfert)
 
 
 class MediaError(RuntimeError):
@@ -92,8 +93,10 @@ def prepare(src, proxies_dir, stem):
     proxies_dir.mkdir(parents=True, exist_ok=True)
     info = probe(src)
     proxy, poster = proxies_dir / f"{stem}.mp4", proxies_dir / f"{stem}.jpg"
-    vf = ("" if info["square"] else "scale='trunc(iw*sar/2)*2':ih,setsar=1,") + (f"fps={info['fps']},scale='min({PROXY_MAX},iw)':'min({PROXY_MAX},ih)':force_original_aspect_ratio=decrease:"
-          f"force_divisible_by=2:flags=bicubic,format=rgb24,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setsar=1")
+    square = "" if info["square"] else "scale='trunc(iw*sar/2)*2':ih,setsar=1,"     # pixels non carres d'abord
+    vf = (f"{square}fps={info['fps']},scale='min({PROXY_MAX},iw)':'min({PROXY_MAX},ih)':force_original_aspect_ratio=decrease:"
+          f"force_divisible_by=2:flags=bicubic,format=rgb24,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+          f"setsar=1,{BT709}")
     args = ["-i", str(src), "-map", "0:v:0", "-vf", vf, "-fps_mode", "cfr", "-c:v", "libx264", "-preset", "veryfast",
             "-crf", "20", "-g", "15", "-keyint_min", "1", "-pix_fmt", "yuv420p", "-colorspace", "bt709",
             "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
@@ -131,7 +134,7 @@ def ensure_reverse(proxy, info, log=print):
             cnt = min(chunk, n - start)
             seg = tmp / f"s{k:05d}.mp4"
             ffmpeg(["-ss", f"{float(start / fps):.6f}", "-i", str(proxy), "-map", "0:v:0", "-vf",
-                    f"trim=end_frame={cnt},reverse,setpts=N/FRAME_RATE/TB", "-r", info["fps"], "-c:v", "libx264",
+                    f"trim=end_frame={cnt},reverse,setpts=N/FRAME_RATE/TB,{BT709}", "-r", info["fps"], "-c:v", "libx264",
                     "-preset", "veryfast", "-crf", "20", "-g", "15", "-pix_fmt", "yuv420p", "-colorspace", "bt709",
                     "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-an", str(seg)])
             parts.append(seg)

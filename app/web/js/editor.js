@@ -1,4 +1,4 @@
-// Editeur de planche : SVG (fond, images decoupees, traits) + poignees des decoupes + icones par case.
+// Editeur de planche : SVG (fond, images et affiches des videos decoupees, traits) + poignees des decoupes + icones par case.
 import { compute, nodeAt, area } from "./geometry.js";
 import { placement } from "./exporter.js";
 import { h } from "./api.js";
@@ -13,8 +13,8 @@ const pts = (poly) => poly.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).jo
 
 export const ICONS = {
   image: '<path d="M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="15.5" cy="9" r="1.6" fill="currentColor"/>',
-  camera: '<path d="M3 7h12v10H3z M15 10.5l6-3.5v10l-6-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  action: '<circle cx="13" cy="4.5" r="2" fill="currentColor"/><path d="M8 21l3-7 3 3v5 M6 12l3-4h5l3 4 M11 14l1-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  video: '<path d="M3 7h12v10H3z M15 10.5l6-3.5v10l-6-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  filters: '<path d="M4 6h9 M17 6h3 M4 12h3 M11 12h9 M4 18h11 M19 18h1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   audio: '<path d="M9 18V6l11-2v12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.5" fill="currentColor"/><circle cx="17.5" cy="16" r="2.5" fill="currentColor"/>',
 };
 export const icon = (name) => {
@@ -79,13 +79,14 @@ export class Editor {
       cp.append(s("polygon", { points: pts(g.poly) }));
       defs.append(cp);
       const grp = s("g", { "clip-path": `url(#cp-${g.id})` });
-      grp.append(s("polygon", { points: pts(g.poly), fill: panel.image ? "#fff" : "var(--empty)" }));
-      if (panel.image) {
+      const pic = media(panel);
+      grp.append(s("polygon", { points: pts(g.poly), fill: pic ? "#fff" : "var(--empty)" }));
+      if (pic) {
         // on garde les elements <image> d'un rendu a l'autre : pas de clignotement pendant les glisser
-        const pl = placement(g.bbox, panel.image.w, panel.image.h, panel.view);
+        const pl = placement(g.bbox, pic.w, pic.h, panel.view);
         let im = this.imgs.get(g.id);
-        if (!im || im.getAttribute("href") !== panel.image.url) {
-          im = s("image", { href: panel.image.url, preserveAspectRatio: "none" });
+        if (!im || im.getAttribute("href") !== pic.url) {
+          im = s("image", { href: pic.url, preserveAspectRatio: "none" });
           this.imgs.set(g.id, im);
         }
         im.setAttribute("x", pl.x); im.setAttribute("y", pl.y);
@@ -128,20 +129,19 @@ export class Editor {
       const st = this.app.panelStatus(g.id);
       const box = h("div.ptools", { style: { left: (g.bbox.x0 / pg.width * 100) + "%", top: (g.bbox.y0 / pg.height * 100) + "%",
                                               width: (g.bbox.w / pg.width * 100) + "%", height: (g.bbox.h / pg.height * 100) + "%" } });
+      const fl = ((panel.edit || {}).filters || []).filter(f => f.on !== false).length;
       const bar = h("div.pbar",
         h("span.num", String(g.order)),
-        this.tool(g.id, "image", panel.image ? "Remplacer l'image" : "Importer une image"),
-        this.tool(g.id, "camera", "Caméra : " + this.app.label("camera", panel.camera?.id)),
-        this.tool(g.id, "action", "Action : " + this.app.label("action", panel.action?.id)),
+        this.tool(g.id, panel.image ? "image" : "video", panel.video ? "Remplacer la vidéo" : panel.image ? "Remplacer l'image" : "Importer une vidéo ou une image"),
+        media(panel) ? this.tool(g.id, "filters", "Filtres et retouches (aperçu)" + (fl ? ` : ${fl} effet${fl > 1 ? "s" : ""}` : ""), fl > 0) : null,
         this.tool(g.id, "audio", "Sons : " + this.app.audioLabel(panel), this.app.hasSound(panel)),
         st ? h("span.dot." + st.kind, { title: st.text }) : null);
       box.append(bar);
-      if (!panel.image) {
-        box.append(h("button.empty-cta", { on: { click: () => this.app.pickImage(g.id) } },
-                     icon("image"), h("span", "Glisser une image ici ou cliquer")));
+      if (!media(panel)) {
+        box.append(h("button.empty-cta", { on: { click: () => this.app.pickMedia(g.id) } },
+                     icon("video"), h("span", "Glisser une vidéo (ou une image) ici, ou cliquer")));
       } else {
-        const tags = [this.app.label("camera", panel.camera?.id || "fixe"), this.app.label("action", panel.action?.id || "fige")];
-        box.append(h("div.ptag", tags.join(" · ")));
+        box.append(h("div.ptag", this.app.panelTag(panel)));
       }
       this.overlay.append(box);
     }
@@ -169,8 +169,9 @@ export class Editor {
     if (!g) { this.app.select(null); return; }
     if (this.app.selected !== g.id) this.app.select(g.id);
     const panel = this.project.panels[g.id];
-    if (panel?.image) {
-      const pl = placement(g.bbox, panel.image.w, panel.image.h, panel.view);
+    const pic = media(panel);
+    if (pic) {
+      const pl = placement(g.bbox, pic.w, pic.h, panel.view);
       this.drag = { kind: "pan", id: g.id, bb: g.bbox, start: pt, ox: pl.ox, oy: pl.oy, moved: false };
       e.preventDefault();
     }
@@ -182,8 +183,9 @@ export class Editor {
     const pt = this.pagePt(e);
     if (d.kind === "pan") {
       const panel = this.project.panels[d.id];
+      const pic = media(panel);
       panel.view = Object.assign({}, panel.view, { ox: d.ox + (pt.x - d.start.x) / d.bb.w, oy: d.oy + (pt.y - d.start.y) / d.bb.h });
-      const pl = placement(d.bb, panel.image.w, panel.image.h, panel.view);
+      const pl = placement(d.bb, pic.w, pic.h, panel.view);
       panel.view.ox = pl.ox; panel.view.oy = pl.oy;
       d.moved = true;
       this.render();
@@ -229,7 +231,7 @@ export class Editor {
     const g = this.panelAt(this.pagePt(e));
     if (!g || g.id !== this.app.selected) return;
     const panel = this.project.panels[g.id];
-    if (!panel?.image) return;
+    if (!media(panel)) return;
     e.preventDefault();
     const v = Object.assign({ zoom: 1, ox: 0, oy: 0 }, panel.view);
     v.zoom = Math.max(1, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015)));
@@ -257,9 +259,17 @@ export class Editor {
     this.hoverDrop(null);
     const f = [...(e.dataTransfer?.files || [])][0];
     if (!g || !f) return;
-    if (f.type.startsWith("image/")) this.app.importImage(g.id, f);
+    if (f.type.startsWith("video/") || /\.(mp4|mov|m4v|mkv|webm|avi|mpe?g|mts|m2ts|wmv|ogv)$/i.test(f.name)) this.app.importVideo(g.id, f);
+    else if (f.type.startsWith("image/")) this.app.importImage(g.id, f);
     else if (f.type.startsWith("audio/")) this.app.importAudio(g.id, f);
   }
+}
+
+// ce qu'on montre dans la case de l'editeur : l'image, ou l'affiche (premiere image) de la video
+export function media(panel) {
+  if (panel?.video) return { url: panel.video.poster_url, w: panel.video.w, h: panel.video.h };
+  if (panel?.image) return { url: panel.image.url, w: panel.image.w, h: panel.image.h };
+  return null;
 }
 
 function inside([x, y], poly) {

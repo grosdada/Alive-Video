@@ -1,5 +1,5 @@
-/* Alive-Comics : popup du mode edition (apercu servi par l'application). */
-#edit[aria-pressed="true"] { background: #f2b45c; color: #1b150c; border-color: #f2b45c; }
+/* Alive-Video : fenetre du mode edition (apercu servi par l'application). */
+#edit[aria-pressed="true"] { background: #b36bff; color: #1a0b2b; border-color: #b36bff; }
 .ae-pop { position: fixed; z-index: 60; width: min(460px, calc(100vw - 16px)); max-height: calc(100vh - 24px);
           display: flex; flex-direction: column; background: #1b1b1b; color: #ece8e1; border: 1px solid #3a3a3a;
           border-radius: 12px; box-shadow: 0 18px 60px rgba(0, 0, 0, .6); font: 13px/1.4 system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -9,7 +9,7 @@
 .ae-sub { color: #9a948a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ae-sp { flex: 1; }
 .ae-ib { width: 30px; height: 28px; padding: 0; border-radius: 8px; font-size: 14px; }
-.ae-ib.on { border-color: #f2b45c; }
+.ae-ib.on { border-color: #b36bff; }
 .ae-body { overflow-y: auto; overflow-x: hidden; min-height: 0; padding: 10px 14px 6px; display: flex; flex-direction: column; gap: 8px; }
 .ae-stagebox { display: flex; justify-content: center; background: #0d0d0d; border-radius: 8px; padding: 6px 0; }
 .ae-stage { border-radius: 3px; }
@@ -18,13 +18,13 @@
 .ae-tl { display: block; border-radius: 6px; cursor: pointer; touch-action: none; }
 .ae-tabs { display: flex; gap: 2px; border-bottom: 1px solid #2c2c2c; margin-top: 2px; }
 .ae-tabs button { border: 0; border-radius: 8px 8px 0 0; background: transparent; padding: 6px 10px; color: #9a948a; }
-.ae-tabs button.on { background: #2b2b2b; color: #ece8e1; box-shadow: inset 0 -2px 0 #f2b45c; }
+.ae-tabs button.on { background: #2b2b2b; color: #ece8e1; box-shadow: inset 0 -2px 0 #b36bff; }
 .ae-tab { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px; }
 .ae-btn { font-size: 12.5px; padding: 4px 11px; }
-.ae-btn.ae-main { background: #f2b45c; color: #1b150c; border-color: #f2b45c; font-weight: 600; }
+.ae-btn.ae-main { background: #b36bff; color: #1a0b2b; border-color: #b36bff; font-weight: 600; }
 .ae-btn.ae-main:disabled { opacity: .5; }
 .ae-sl { display: grid; grid-template-columns: 92px 1fr 86px; align-items: center; gap: 8px; }
-.ae-sl input[type="range"] { width: 100%; accent-color: #f2b45c; }
+.ae-sl input[type="range"] { width: 100%; accent-color: #b36bff; }
 .ae-sl select { font: inherit; color: #ece8e1; background: #2b2b2b; border: 1px solid #444; border-radius: 6px; padding: 3px 6px; }
 .ae-lab { color: #c9c3b8; }
 .ae-val { color: #9a948a; font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
@@ -36,7 +36,7 @@
 .ae-pop select { font: inherit; color: #ece8e1; background: #2b2b2b; border: 1px solid #444; border-radius: 999px; padding: 4px 8px; }
 .ae-blk { display: flex; flex-direction: column; gap: 4px; }
 .ae-chk { display: inline-flex; align-items: center; gap: 5px; color: #c9c3b8; }
-.ae-chk input { accent-color: #f2b45c; }
+.ae-chk input { accent-color: #b36bff; }
 .ae-regen > summary { cursor: pointer; color: #c9c3b8; padding: 2px 0; }
 .ae-regen[open] { display: flex; flex-direction: column; gap: 6px; }
 .ae-jobs { color: #9a948a; font-size: 12px; min-height: 1em; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -44,12 +44,12 @@
 .ae-sndh { display: flex; gap: 8px; align-items: baseline; }
 .ae-sndh small { color: #9a948a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ae-drop { border: 1.5px dashed #555; border-radius: 8px; padding: 10px; text-align: center; color: #c9c3b8; cursor: pointer; }
-.ae-drop:hover, .ae-drop.over { border-color: #f2b45c; color: #f2b45c; }
+.ae-drop:hover, .ae-drop.over { border-color: #b36bff; color: #b36bff; }
 .ae-versions { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
 .ae-ver { display: flex; align-items: center; gap: 8px; justify-content: space-between; font-size: 12px; color: #c9c3b8;
           padding: 3px 6px; border-radius: 6px; }
 .ae-ver.on { background: #2b2b2b; }
-.ae-ver b { color: #f2b45c; font-weight: 600; }
+.ae-ver b { color: #b36bff; font-weight: 600; }
 .err { color: #e8766f; }
 .ae-foot { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid #2c2c2c; }
 .ae-status { color: #9a948a; font-size: 12px; }
@@ -58,7 +58,7 @@
             background: rgba(0, 0, 0, .85); color: #fff; padding: 8px 16px; border-radius: 999px; font: 13px/1.4 system-ui, sans-serif;
             transition: opacity .5s; }
 .ae-toast.off { opacity: 0; }
-.ae-banner { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 70; background: #f2b45c; color: #1b150c;
+.ae-banner { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 70; background: #b36bff; color: #1a0b2b;
              padding: 6px 16px; border-radius: 999px; font: 600 13px/1.4 system-ui, sans-serif; }
 .ae-txt { flex: 1; min-width: 140px; font: inherit; color: #ece8e1; background: #121212; border: 1px solid #444; border-radius: 999px; padding: 4px 10px; }
 .ae-chip { display: inline-flex; align-items: center; }
@@ -92,20 +92,34 @@ button.ae-dot.ae-dot-head:hover { transform: scale(1.15); }
 /* retour a l'accueil de l'application */
 a.ae-nav { font-size: 13px; color: #ece8e1; background: #2b2b2b; border: 1px solid #444; border-radius: 999px; padding: 5px 12px;
            text-decoration: none; white-space: nowrap; }
-a.ae-nav:hover { border-color: #f2b45c; }
+a.ae-nav:hover { border-color: #b36bff; }
 /* confirmation (son deja utilise...) */
 .ae-modal-back { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
 .ae-modal { width: min(460px, calc(100vw - 32px)); background: #1b1b1b; color: #ece8e1; border: 1px solid #3a3a3a; border-radius: 12px;
             padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
             box-shadow: 0 18px 60px rgba(0, 0, 0, .6); }
 .ae-modal b { font-size: 15px; }
-.ae-modal ul { margin: 0; padding-left: 20px; color: #f2b45c; }
+.ae-modal ul { margin: 0; padding-left: 20px; color: #b36bff; }
 .ae-pop .ae-blk select, .ae-pop .ae-row select { max-width: 150px; }
-/* voix off : le MP3 de David, en tete de l'onglet Son */
-.ae-snd.ae-voice { border-color: rgba(242, 180, 92, .55); }
-.ae-snd.over, .ae-drop.ae-voice.over { border-color: #f2b45c; background: rgba(242, 180, 92, .08); }
-.ae-drop.ae-voice { border-color: rgba(242, 180, 92, .6); color: #f2d3a2; }
-/* relief en couches */
-.ae-lay { margin-top: 10px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 8px; display: grid; gap: 6px; }
-.ae-lay b { font-size: 13px; }
-.ae-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+/* onglet Filtres : pile d'effets */
+.ae-snd.over { border-color: #b36bff; background: rgba(179, 107, 255, .08); }
+.ae-fxhead { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 8px; border-top: 1px solid #2c2c2c; }
+.ae-fxhead b { font-size: 13.5px; }
+.ae-fx { border: 1px solid #343434; border-radius: 9px; background: #202020; overflow: hidden; }
+.ae-fx.off { opacity: .55; }
+.ae-fxbar { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 4px; background: #262626; }
+.ae-fxbar b { font-size: 12.5px; margin-left: 4px; }
+.ae-fxbody { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.ae-fxbody input[type="color"] { width: 54px; height: 24px; padding: 0 2px; border: 1px solid #444; border-radius: 6px; background: #2b2b2b; }
+.ae-mv { width: 24px; height: 22px; padding: 0; font-size: 10px; border-radius: 6px; }
+.ae-eye { width: 26px; height: 22px; padding: 0; font-size: 13px; border-radius: 6px; color: #9a948a; }
+.ae-eye.on { color: #b36bff; }
+.ae-fxbar .ae-x { border-radius: 6px; padding: 2px 8px; }
+.ae-addmenu { position: fixed; z-index: 75; width: 280px; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: #1b1b1b;
+              border: 1px solid #3a3a3a; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
+.ae-addmenu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; border: 0; border-radius: 7px; white-space: normal;
+                     background: transparent; padding: 6px 10px; text-align: left; }
+.ae-addmenu button:hover { background: #2b2b2b; }
+.ae-addmenu b { font-size: 13px; font-weight: 600; }
+.ae-addmenu small { color: #9a948a; font-size: 11.5px; }
+.ae-presets:empty { display: none; }

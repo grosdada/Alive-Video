@@ -452,7 +452,7 @@ def export(pid, s, progress=lambda f, m="": None, log=print):
         progress(0.12, "rendu des images")
         vid = tmp / "video.mp4"
         cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(fps),
-               "-i", "pipe:0", "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "-c:v", "libx264",
+               "-i", "pipe:0", "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p," + media.BT709, "-c:v", "libx264",
                "-preset", "medium", "-crf", "18", "-g", str(fps * 2), "-colorspace", "bt709", "-color_primaries", "bt709",
                "-color_trc", "bt709", "-color_range", "tv", "-movflags", "+faststart", str(vid)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, **NOFLASH)
@@ -496,7 +496,7 @@ def export(pid, s, progress=lambda f, m="": None, log=print):
         name = f"{store.slug(P['p'].get('name') or pid)}-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
         final = outdir / name
         if aud:
-            media.ffmpeg(["-i", str(vid), "-i", str(aud), "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-shortest",
+            media.ffmpeg(["-i", str(vid), "-i", str(aud), "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
                           "-movflags", "+faststart", str(final)])
         else:
             shutil.move(str(vid), str(final))

@@ -1,6 +1,6 @@
 :root {
   --bg: #141414; --panel: #1c1c1c; --panel2: #232323; --line: #313131; --ink: #ece8e1; --muted: #9a948a;
-  --accent: #f2b45c; --accent-ink: #1b150c; --ok: #6fc28c; --warn: #e3a33b; --err: #f07a5d; --busy: #6aa8f0;
+  --accent: #b36bff; --accent-ink: #1a0b2b; --ok: #6fc28c; --warn: #e3a33b; --err: #f07a5d; --busy: #6aa8f0;
   --empty: #ebe7df; --top: 52px;
 }
 * { box-sizing: border-box; }
@@ -21,7 +21,7 @@ button.mini.on { background: var(--accent); color: var(--accent-ink); }
 input, select, textarea { font: inherit; color: var(--ink); background: #121212; border: 1px solid #3a3a3a; border-radius: 7px; padding: 6px 8px; min-width: 0; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 input[type=color] { padding: 2px; height: 32px; width: 54px; }
-input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--accent); }
 textarea { resize: vertical; width: 100%; }
 .muted { color: var(--muted); }
 .ico { width: 18px; height: 18px; flex: none; }
@@ -69,7 +69,7 @@ aside h3 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; co
 .page-svg { display: block; width: 100%; height: 100%; user-select: none; touch-action: none; }
 .panel-stroke { pointer-events: none; }
 .sel-outline { fill: none; stroke: var(--accent); stroke-width: 10; stroke-dasharray: 24 14; pointer-events: none; }
-.drop-outline { fill: rgba(242, 180, 92, .18); stroke: var(--accent); stroke-width: 14; pointer-events: none; }
+.drop-outline { fill: rgba(179, 107, 255, .18); stroke: var(--accent); stroke-width: 14; pointer-events: none; }
 .cut-hit { stroke: transparent; cursor: move; }
 .cut-line { stroke: var(--accent); opacity: 0; pointer-events: none; }
 .cut-mid { fill: var(--accent); opacity: 0; cursor: move; }
@@ -109,7 +109,6 @@ aside h3 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; co
 .seg button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 section.insp { border-top: 1px solid var(--line); padding: 8px 0 12px; }
 section.insp h4 { margin: 4px 0 8px; display: flex; align-items: center; gap: 4px; font-size: 13.5px; }
-button.ai { background: #2c2416; border-color: #6b5226; }
 .prompt-preview summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
 .prompt-preview pre { white-space: pre-wrap; font-size: 11.5px; background: #111; padding: 8px; border-radius: 6px; max-height: 220px; overflow: auto; }
 .variants { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -138,15 +137,6 @@ button.ai { background: #2c2416; border-color: #6b5226; }
            border-radius: 12px; padding: 10px 12px 14px; box-shadow: 0 14px 40px rgba(0, 0, 0, .55); }
 .pop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; } .pop-head b { flex: 1; }
 
-/* ---------- tiroir des rendus */
-.drawer { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 30; width: min(900px, 96vw); }
-.drawer-tab { margin: 0 auto; display: block; border-radius: 10px 10px 0 0; border-bottom: none; background: var(--panel2); }
-.drawer-body { background: var(--panel2); border: 1px solid #444; border-bottom: none; border-radius: 10px 10px 0 0; padding: 10px 12px; max-height: 40vh; overflow: auto; }
-table.jobs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 8px; }
-table.jobs td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
-table.jobs tr.running td:nth-child(3) { color: var(--busy); } table.jobs tr.error td { color: var(--err); }
-table.jobs tr.done td:nth-child(3) { color: var(--ok); }
-
 /* ---------- fenetres */
 .modal-back { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 16px; }
 .modal { width: min(760px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid #444;
@@ -166,11 +156,9 @@ table.jobs tr.done td:nth-child(3) { color: var(--ok); }
   .pname { width: 150px; }
 }
 
-/* ---------- couches de son, IA */
+/* ---------- sons */
 .form h5 { margin: 8px 0 0; font-size: 12.5px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
 .form.layer { border-left: 2px solid #3a3a3a; padding-left: 9px; }
-.ai-row { display: flex; flex-direction: column; gap: 6px; }
-.ai-explain { margin: 0; font-size: 12.5px; color: #d8c9a8; background: #221d14; border-radius: 6px; padding: 7px 9px; }
 select.model { flex: 1; min-width: 180px; }
 audio { width: 100%; height: 34px; }
 
@@ -184,21 +172,6 @@ audio { width: 100%; height: 34px; }
 .bpage small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bnum { position: absolute; left: 6px; top: 6px; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 12px;
         border-radius: 999px; padding: 0 7px; }
-
-/* ---------- realisateur IA */
-.director { position: fixed; right: 16px; bottom: 16px; z-index: 35; }
-.director.open { width: 380px; max-width: calc(100vw - 32px); background: var(--panel2); border: 1px solid #555; border-radius: 14px;
-                 padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 14px 40px rgba(0, 0, 0, .55); }
-.director.open textarea { min-height: 90px; }
-.director p { margin: 0; font-size: 12.5px; }
-.director-pill { background: #2c2416; border-color: #6b5226; border-radius: 999px; padding: 8px 16px; font-weight: 600;
-                 box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
-.checks2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
-.veil { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .6); display: grid; place-items: center; }
-.veil > div { background: var(--panel); border: 1px solid #555; border-radius: 14px; padding: 18px 24px; text-align: center; }
-.veil b { font-size: 16px; }
-
-.vwarn { font-size: 11px; color: var(--warn); }
 
 /* ---------- accueil : outils, liste, livres repliables, pastilles de calcul */
 .home-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 12px; }
@@ -227,7 +200,7 @@ audio { width: 100%; height: 34px; }
 .calc { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; color: #fff; background: rgba(0, 0, 0, .7); }
 .thumb .calc, .bthumb .calc { position: absolute; right: 8px; top: 8px; }
 .calc.run { background: #e0483e; animation: calcblink 1.1s ease-in-out infinite; }
-.calc.wait { background: rgba(242, 163, 60, .92); color: var(--accent-ink); }
+.calc.wait { background: rgba(179, 107, 255, .85); color: var(--accent-ink); }
 @keyframes calcblink { 50% { opacity: .35; } }
 .popmenu { position: fixed; z-index: 80; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: #1b1b1b;
            border: 1px solid #3a3a3a; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); }
@@ -265,3 +238,20 @@ body.dragging-planche .fchip[data-folder] { border-style: dashed; border-color: 
 .tab { border-radius: 10px 10px 0 0; border-bottom: 0; padding: 8px 20px; font-size: 16px; font-weight: 600; background: transparent; color: var(--muted); }
 .tab small { color: var(--muted); font-weight: 400; margin-left: 4px; }
 .tab.on { background: var(--panel2); color: var(--ink); border-color: var(--line); box-shadow: inset 0 3px 0 var(--accent); }
+
+/* ---------- videos dans les cases, export */
+.minfo { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.minfo b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.minfo span { color: var(--muted); }
+.fxsum { margin: 0; font-size: 12.5px; color: #cdb8f0; background: #1e1628; border-radius: 6px; padding: 7px 9px; }
+.sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-size: 12.5px; }
+.veil { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .6); display: grid; place-items: center; }
+.veil > div { background: var(--panel); border: 1px solid #555; border-radius: 14px; padding: 18px 24px; text-align: center; max-width: 520px; }
+.veil b { font-size: 16px; }
+.pbar2 { height: 8px; border-radius: 8px; background: #2a2a2a; overflow: hidden; }
+.pbar2 i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.vlist { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
+.vrow { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; font-size: 13px; }
+.vrow a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-calc { cursor: pointer; }
+p.err { color: var(--err); margin: 0; }
