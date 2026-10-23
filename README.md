@@ -83,7 +83,8 @@ Mac (`~/Alive-Video/projects`).
    - glisser une clé choisie déplace toute la sélection ; Suppr efface ;
    - clic droit sur une clé : dupliquer, copier / coller, courbe (ease in-out, linéaire, ease in, ease out, versions
      fortes pour les ralentis marqués, palier) ;
-   - Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+A ;
+   - Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+A ; Ctrl+Z / Ctrl+Y annulent et refont chaque action (même juste après un curseur ou
+     une couleur), la sélection des clés est gardée ;
    - Maj + clic sur les noms de ligne = plusieurs lignes ; « ☰ Toutes les lignes », « ◆ Clé partout », « Tout effacer ».
 
    L'aperçu et la vidéo exportée suivent. Le bouton **🎨 Style de page** de la timeline (allumé ou éteint) ajoute les

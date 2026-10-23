@@ -17,13 +17,16 @@ Ses planches, dans Documents › Alive Video, ne bougent pas.
   - glisser une clé choisie déplace toute la sélection ; Suppr (ou ⌫) efface ;
   - clic droit sur une clé : dupliquer (à la tête de lecture, ou juste après), copier / coller, courbes
     (ease in-out, linéaire, ease in, ease out, leurs versions fortes, palier), supprimer ;
-  - Cmd+D, Cmd+C, Cmd+V, Cmd+A ;
+  - Cmd+D, Cmd+C, Cmd+V, Cmd+A ; Cmd+Z / Cmd+Maj+Z (ou Cmd+Y) annulent et refont chaque action de la timeline ;
   - Maj ou Cmd + clic sur les noms de ligne, « ☰ Toutes les lignes », « ◆ Clé partout », « Tout effacer ».
 - **Nouvelles courbes** `ease2`, `in2`, `out2` (puissance 5). Mêmes formules dans `app/web/js/geometry.js`,
   `player/alive-player.js` et `app/geometry.py`.
 - **Les vidéos des cases suivent la tête de lecture** en Animate framing : une `<video>` dans un `<foreignObject>`
   de la planche SVG, découpée par le polygone de la case (`app/web/js/editor.js › liveVideo / syncVideos`). Au
   glisser, la vidéo cherche l'image ; pendant la lecture elle joue (à l'envers : image par image).
+- **Annulation** : une étape par action de la timeline, la sélection des clés est gardée, Cmd+Z marche aussi quand
+  un curseur, une couleur ou un menu a le focus. Correctif : après une annulation, l'action suivante enregistrait un
+  mauvais état (un second Cmd+Z ramenait ce qu'on venait d'annuler).
 - **Correctif** : la vignette de la planche renvoie le nouveau numéro `rev`. Avant, l'app rechargeait la planche
   quelques secondes après chaque modification, ce qui vidait Ctrl+Z et la sélection de la timeline.
 
@@ -36,7 +39,9 @@ Ses planches, dans Documents › Alive Video, ne bougent pas.
 - **Cmd+D** est aussi « Ajouter un signet » dans Safari : la timeline doit dupliquer les clés sans ouvrir la fenêtre
   des signets. Cmd+A ne doit pas sélectionner le texte de la page. Sinon, corriger dans `app/web/js/main.js › keys()`.
 - **Rectangle de sélection** : il se trace sans sélectionner de texte, y compris en sortant de la ligne de départ.
-- **Ctrl+Z après une minute d'attente** : l'annulation doit toujours marcher (le correctif `rev`).
+- **Cmd+Z / Cmd+Maj+Z** dans la timeline : chaque action s'annule une par une, y compris juste après avoir bougé un
+  curseur du Style de page ou choisi une courbe ; et après une minute d'attente (le correctif `rev`). Safari ne doit
+  pas intercepter Cmd+Z pour lui-même (rouvrir un onglet fermé, par exemple).
 - **Points restés ouverts en 0.1.1**, si le contrôle des applications le permet cette fois :
   - le vrai dialogue « Parcourir… » s'ouvre devant Safari, et l'annulation ne change rien ;
   - « 📁 Dossier des vidéos » ouvre le Finder ;

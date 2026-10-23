@@ -679,16 +679,19 @@ class App {
   }
   pushUndo(snap) { this.undo.push(snap); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   restore(snap) {
+    const keep = this.timeline?.state();               // cles et lignes choisies, retrouvees par leur instant
     Object.assign(this.project, JSON.parse(snap));
+    this._last = snap; this._lastKind = null;          // l'etat courant : la prochaine action s'annule jusqu'ici
     if (this.selected && !this.project.panels[this.selected]) this.selected = null;
+    if (keep) this.timeline.remap(keep);
     this.timeline?.render();
     this.editor.render(); this.renderLeft(); this.refreshInspector(); this.save(); this.pageSoon();
   }
   doUndo() { if (this.undo.length) { this.redo.push(this.snapshot()); this.restore(this.undo.pop()); } }
   doRedo() { if (this.redo.length) { this.undo.push(this.snapshot()); this.restore(this.redo.pop()); } }
 
-  commit(kind) {
-    if (this._last && this._lastKind === kind && Date.now() - this._lastT < 1200) { /* meme geste : une seule etape */ }
+  commit(kind, step) {               // step : action distincte, jamais fusionnee avec la precedente (timeline)
+    if (!step && this._last && this._lastKind === kind && Date.now() - this._lastT < 1200) { /* meme geste : une seule etape */ }
     else if (this._last) this.pushUndo(this._last);
     this._last = this.snapshot(); this._lastKind = kind; this._lastT = Date.now();
     this.editor?.renderOverlay();
@@ -1002,7 +1005,14 @@ class App {
 
   keys(e) {
     const tgt = e.target instanceof Element ? e.target : document.body;
-    if (!this.project || tgt.closest("input, textarea, select")) return;
+    const field = tgt.closest("input, textarea, select");
+    const typing = field && (field.tagName === "TEXTAREA" || (field.tagName === "INPUT" && !/^(range|color|checkbox|radio|button)$/.test(field.type)));
+    if (!this.project || typing) return;                     // saisie de texte : son propre Ctrl+Z
+    if (field) {                                             // curseur, couleur, menu : seulement annuler / refaire
+      const k = e.key.toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || (k !== "z" && k !== "y")) return;
+      field.blur();
+    }
     if (this.animMode && e.code === "Space") { e.preventDefault(); this.animToggle(); return; }
     const tl = this.animMode && this.timeline, mod = e.ctrlKey || e.metaKey, kk = e.key.toLowerCase();
     if (tl) {                                       // cles de la timeline : effacer, dupliquer, copier / coller, tout
@@ -1187,7 +1197,7 @@ Object.assign(App.prototype, {
     this.timeline?.render();
     this.editor.render();
     if (!this.selected) this.refreshInspector();          // reglages de page : badges « animé »
-    this.commit("anim");
+    this.commit("anim", true);
   },
 
   toast(msg, kind, ms) { toast(msg, kind, ms); },

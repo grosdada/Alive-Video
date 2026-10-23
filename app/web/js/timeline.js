@@ -26,20 +26,21 @@ export class Timeline {
     this.clip = null;                // cles copiees : [{track, dt, v, e}]
     const keep = app._tlKeep;        // planche rechargee : on reprend la selection et la copie
     app._tlKeep = null;
-    if (keep) {
-      this.clip = keep.clip;
-      this.selRows = keep.rows;
-      const want = new Set(keep.sel);
-      for (const [track, keys] of Object.entries(this.tracks)) for (const k of keys || []) if (want.has(track + "@" + k.t)) this.selSet.add(k);
-    }
+    if (keep) { this.clip = keep.clip; this.remap(keep); }
     this.el = h("div.tl");
     host.append(this.el);
     this.render();
   }
 
-  // ce qu'on garde si la planche est rechargee
+  // ce qu'on garde si la planche est rechargee ou si on annule : les cles choisies par leur ligne et leur instant
   state() {
     return { clip: this.clip, rows: this.selRows, sel: this.selList().map(g => g.track + "@" + g.k.t) };
+  }
+  remap(keep) {
+    this.selRows = keep.rows;
+    const want = new Set(keep.sel);
+    this.selSet = new Set();
+    for (const [track, keys] of Object.entries(this.tracks)) for (const k of keys || []) if (want.has(track + "@" + k.t)) this.selSet.add(k);
   }
 
   get P() { return this.app.project; }
