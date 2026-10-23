@@ -104,7 +104,10 @@ export function compute(page, layout) {
   const root = [[m, m], [W - m, m], [W - m, H - m], [m, H - m]];
   (function walk(node, poly, path) {
     if (!node) return;
-    if (node.t === "leaf") { panels.push({ id: node.id, poly, bbox: bbox(poly), path }); return; }
+    if (node.t === "leaf") { panels.push({ id: node.id, poly, bbox: poly.length >= 3 ? bbox(poly) : null, path }); return; }
+    if (poly.length < 3) {                 // case refermee (animation) : ses sous-cases n'existent pas a cet instant
+      walk(node.c[0], [], path.concat(0)); walk(node.c[1], [], path.concat(1)); return;
+    }
     const bb = bbox(poly);
     const { P, Q, n } = cutLine(node, bb);
     const f = (X) => n[0] * (X[0] - P[0]) + n[1] * (X[1] - P[1]);
@@ -158,19 +161,86 @@ export function removeLeaf(layout, id) {
   return { ...layout, c: [removeLeaf(a, id), removeLeaf(b, id)] };
 }
 
-// coupe une case en deux ; la nouvelle case recoit newId
-export function splitLeaf(layout, id, dir, newId) {
+// coupe une case en deux ; la nouvelle case recoit newId, le nouveau trait un identifiant (pistes d'animation)
+export function splitLeaf(layout, id, dir, newId, cutId) {
+  cutId = cutId || newCutId(layout);
   if (layout.t === "leaf") {
-    return layout.id === id ? { t: "split", dir, a: 0.5, b: 0.5, c: [layout, { t: "leaf", id: newId }] } : layout;
+    return layout.id === id ? { t: "split", id: cutId, dir, a: 0.5, b: 0.5, c: [layout, { t: "leaf", id: newId }] } : layout;
   }
-  return { ...layout, c: [splitLeaf(layout.c[0], id, dir, newId), splitLeaf(layout.c[1], id, dir, newId)] };
+  return { ...layout, c: [splitLeaf(layout.c[0], id, dir, newId, cutId), splitLeaf(layout.c[1], id, dir, newId, cutId)] };
+}
+
+// ------------------------------------------------------------------ animation du cadrage (« Animate framing »)
+// Chaque trait (decoupe) a un identifiant (c1, c2...) ; chacun de ses deux bouts (a, b) peut avoir une piste
+// d'images cles : anim = { tracks: { "c2.a": [{t (s), v (0..1), e}], ... } }. Entre deux cles, la valeur suit la
+// courbe de la premiere. MEME CALCUL dans player/alive-player.js et app/geometry.py (export video).
+export const EASES = [["ease", "Douce"], ["linear", "Linéaire"], ["in", "Accélère"], ["out", "Ralentit"], ["hold", "Palier"]];
+
+export function ease(e, u) {
+  if (e === "linear") return u;
+  if (e === "in") return u * u * u;
+  if (e === "out") return 1 - (1 - u) * (1 - u) * (1 - u);
+  if (e === "hold") return 0;
+  return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+}
+
+export function trackValue(keys, t, fallback) {
+  if (!keys || !keys.length) return fallback;
+  if (t <= keys[0].t) return keys[0].v;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k0 = keys[i], k1 = keys[i + 1];
+    if (t < k1.t) {
+      const u = (t - k0.t) / Math.max(1e-9, k1.t - k0.t);
+      return k0.v + (k1.v - k0.v) * ease(k0.e, u);
+    }
+  }
+  return keys[keys.length - 1].v;
+}
+
+export function hasAnim(anim) { return !!anim && Object.values(anim.tracks || {}).some(k => k && k.length); }
+
+// le decoupage a l'instant t (arbre recopie, bouts animes remplaces)
+export function layoutAt(layout, anim, t) {
+  if (!hasAnim(anim)) return layout;
+  const T = anim.tracks;
+  const walk = (n) => n.t === "leaf" ? n : Object.assign({}, n, {
+    a: trackValue(T[n.id + ".a"], t, n.a), b: trackValue(T[n.id + ".b"], t, n.b), c: [walk(n.c[0]), walk(n.c[1])] });
+  return walk(layout);
+}
+
+// fin de l'animation (derniere cle)
+export function animEnd(anim) {
+  let e = 0;
+  for (const k of Object.values((anim && anim.tracks) || {})) for (const x of k || []) e = Math.max(e, x.t);
+  return e;
+}
+
+export function cutIdsOf(layout, out = []) {
+  if (layout && layout.t === "split") { if (layout.id) out.push(layout.id); cutIdsOf(layout.c[0], out); cutIdsOf(layout.c[1], out); }
+  return out;
+}
+
+export function newCutId(layout) {
+  const n = Math.max(0, ...cutIdsOf(layout).map(id => +String(id).slice(1) || 0));
+  return "c" + (n + 1);
+}
+
+// donne un identifiant aux traits qui n'en ont pas (planches d'avant l'animation) ; modifie l'arbre
+export function ensureCutIds(layout) {
+  let n = Math.max(0, ...cutIdsOf(layout).map(id => +String(id).slice(1) || 0));
+  (function walk(x) {
+    if (!x || x.t !== "split") return;
+    if (!x.id) x.id = "c" + (++n);
+    walk(x.c[0]); walk(x.c[1]);
+  })(layout);
+  return layout;
 }
 
 export function clone(x) { return JSON.parse(JSON.stringify(x)); }
 
 // ------------------------------------------------------------------ presets
 const L = (id) => ({ t: "leaf", id });
-const S = (dir, a, b, c0, c1) => ({ t: "split", dir, a, b, c: [c0, c1] });
+const S = (dir, a, b, c0, c1) => ({ t: "split", dir, a, b, c: [c0, c1] });     // identifiants : ensureCutIds
 
 function rows(n, mk) {           // n bandes egales
   if (n === 1) return mk();

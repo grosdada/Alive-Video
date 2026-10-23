@@ -23,6 +23,9 @@ Documentation complète, à lire en premier : `docs/ALIVE-VIDEO-DOC.html`.
   procédure dans la doc § 11 ; écart moyen attendu ~1/255, au-delà de 3 il y a un défaut).
 - Le temps d'une case (`source_frame` en Python = `sourcePos` en JS) est le même des deux côtés : début / fin en numéros
   d'images, vitesse, envers, boucle ou une fois. La copie de lecture et l'export appliquent le même filtre `fps`.
+- **Animate framing** (cadrage animé : pistes d'images clés sur les bouts des traits, `project.anim`) : interpolation et
+  découpage identiques dans `app/web/js/geometry.js`, `player/alive-player.js` et `app/geometry.py`. Même règle : modifier
+  les trois ensemble.
 - Les vidéos originales ne sont jamais modifiées (`assets/`) ; le lecteur lit la copie (`proxies/`), l'export l'original.
 - Cases à pastille **verte** (`review: "ok"`) : validées par David, ne pas les retoucher. Ne jamais passer une case en vert.
 - Sons importés : jamais deux fois le même fichier (`app/sounds.py`) ; un son déjà utilisé déclenche une alerte.

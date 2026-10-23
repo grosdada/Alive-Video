@@ -74,9 +74,14 @@ def play_seconds(panel):
 
 
 def auto_duration(p):
-    """Duree par defaut de la page : le plus long passage de ses videos (5 s s'il n'y en a pas)."""
+    """Duree par defaut de la page : le plus long passage de ses videos (5 s s'il n'y en a pas) ; si le cadrage est
+    anime plus longtemps, la fin de l'animation plus 1 s (la page finie reste un instant)."""
     d = max([play_seconds(pn) for pn in (p.get("panels") or {}).values()] or [0])
-    return round(min(MAX_SECONDS, d), 3) if d > 0.2 else 5.0
+    d = d if d > 0.2 else 5.0
+    end = G.anim_end(G.clean_anim(p.get("anim"), p.get("layout") or {}))
+    if end > 0 and end + 1 > d:
+        d = end + 1
+    return round(min(MAX_SECONDS, d), 3)
 
 
 def settings_of(p, override=None):
@@ -135,43 +140,73 @@ def raster(bb, sx, sy):
     return X0, Y0, max(1, X1 - X0), max(1, Y1 - Y0)
 
 
-class Panel:
-    """Une case avec une image ou une video, preparee pour l'export : grille, masque, images source."""
-
-    def __init__(self, pid, d, g, panel, page, kx, ky, W, H, unit, stroke):
-        self.id, self.panel = g["id"], panel
-        self.edit = panel.get("edit") or {}
-        self.filters = [f for f in E.clean_filters(self.edit.get("filters")) if f.get("on", True)]
-        self.video = panel.get("video") if (panel.get("video") or {}).get("file") else None
-        self.image = None if self.video else panel.get("image")
+def _bb(g):
+    """Boite d'une case : geometrie enregistree (rect) ou calculee a l'instant (bbox)."""
+    if g.get("rect"):
         x0, y0, x1, y1 = g["rect"]
-        bb = {"x0": x0, "y0": y0, "x1": x1, "y1": y1, "w": x1 - x0, "h": y1 - y0}
+    else:
+        b = g["bbox"]
+        x0, y0, x1, y1 = b["x0"], b["y0"], b["x1"], b["y1"]
+    return {"x0": x0, "y0": y0, "x1": x1, "y1": y1, "w": x1 - x0, "h": y1 - y0}
+
+
+class Geom:
+    """Ou est une case dans l'image : grille de calcul (= texture du lecteur), placement de la source, polygone elargi
+    sous le trait et son masque, unites des effets. Fixe pour une page sans animation, recalculee a chaque image sinon."""
+
+    def __init__(self, g, mw, mh, view, page, kx, ky, W, H, stroke):
+        bb = _bb(g)
         self.bb = bb
-        # grille de la case (= texture du lecteur), alignee sur les pixels de l'export
         self.X0, self.Y0, self.fw, self.fh = raster(bb, kx, ky)
-        mw, mh = (self.video or self.image)["w"], (self.video or self.image)["h"]
-        pl = G.placement(bb, mw, mh, panel.get("view"))
-        # source decodee a la taille de son placement dans l'export : le pixel j de la grille tombe sur le pixel
-        # X0 + j - round(x du placement) de la source (a une demi-image pres) : aucun reechantillonnage
-        self.dw, self.dh = max(2, int(round(pl["w"] * kx))), max(2, int(round(pl["h"] * ky)))
-        cx, cy = self.X0 - int(round(pl["x"] * kx)), self.Y0 - int(round(pl["y"] * ky))
-        c0x, c0y = max(0, min(self.dw - 1, cx)), max(0, min(self.dh - 1, cy))
-        c1x, c1y = max(c0x + 1, min(self.dw, cx + self.fw)), max(c0y + 1, min(self.dh, cy + self.fh))
-        self.crop = (c0x, c0y, c1x - c0x, c1y - c0y)
-        # bords hors de la source (case un peu plus large que l'image) : prolonges, comme CLAMP_TO_EDGE
-        self.pad = (c0y - cy, cy + self.fh - c1y, c0x - cx, cx + self.fw - c1x)
-        # pose dans la page : polygone elargi sous le trait (comme le lecteur), bords prolonges hors de la grille
+        self.pl = G.placement(bb, mw, mh, view)
         self.poly = G.grow(g["poly"], stroke / 2 + 1)
         self.box = _box(self.poly, kx, ky, W, H)
         X0, Y0, X1, Y1 = self.box
         self.mask = (_mask(self.poly, kx, ky, self.box).astype(np.float32) / 255)[..., None]
         self.place = (Y0 - self.Y0, self.Y0 + self.fh - Y1, X0 - self.X0, self.X0 + self.fw - X1)
+        self.units = (self.fw / kx / page["height"] * 1000, self.fh / ky / page["height"] * 1000)
+
+
+class Panel:
+    """Une case avec une image ou une video, preparee pour l'export.
+    Page fixe : la source est decodee a la taille de son placement et recadree sur la grille de la case (aucun
+    reechantillonnage). Page au cadrage anime : la source est decodee entiere, a la plus grande taille qu'elle prend
+    pendant l'animation, et reechantillonnee (bilineaire, comme la texture du lecteur) a chaque image."""
+
+    def __init__(self, pid, d, g, panel, page, kx, ky, W, H, unit, stroke, full=None):
+        self.id, self.panel = g["id"], panel
+        self.edit = panel.get("edit") or {}
+        self.filters = [f for f in E.clean_filters(self.edit.get("filters")) if f.get("on", True)]
+        self.video = panel.get("video") if (panel.get("video") or {}).get("file") else None
+        self.image = None if self.video else panel.get("image")
+        self.mw, self.mh = (self.video or self.image)["w"], (self.video or self.image)["h"]
+        self.view = panel.get("view")
+        self.page, self.kx, self.ky, self.W, self.H, self.stroke = page, kx, ky, W, H, stroke
+        self.unit = unit
         self.opacity = float(self.edit.get("opacity", 1))
         self.grade = self.edit.get("grade") or {}
-        self.ctx = {"unit": unit, "units": (self.fw / kx / page["height"] * 1000, self.fh / ky / page["height"] * 1000),
-                    "seed": E.panel_seed(self.id)}
+        self.seed = E.panel_seed(self.id)
+        self.full = full
+        if full:                                          # cadrage anime : source entiere (dw, dh)
+            self.dw, self.dh = full
+            self.crop, self.pad, self.G = (0, 0, self.dw, self.dh), (0, 0, 0, 0), None
+        else:
+            self.G = self.geom(g)
+            Gm = self.G
+            # source decodee a la taille de son placement dans l'export : le pixel j de la grille tombe sur le pixel
+            # X0 + j - round(x du placement) de la source (a une demi-image pres)
+            self.dw, self.dh = max(2, int(round(Gm.pl["w"] * kx))), max(2, int(round(Gm.pl["h"] * ky)))
+            cx, cy = Gm.X0 - int(round(Gm.pl["x"] * kx)), Gm.Y0 - int(round(Gm.pl["y"] * ky))
+            c0x, c0y = max(0, min(self.dw - 1, cx)), max(0, min(self.dh - 1, cy))
+            c1x, c1y = max(c0x + 1, min(self.dw, cx + Gm.fw)), max(c0y + 1, min(self.dh, cy + Gm.fh))
+            self.crop = (c0x, c0y, c1x - c0x, c1y - c0y)
+            # bords hors de la source (case un peu plus large que l'image) : prolonges, comme CLAMP_TO_EDGE
+            self.pad = (c0y - cy, cy + Gm.fh - c1y, c0x - cx, cx + Gm.fw - c1x)
         self.src = None                      # images decodees (memmap) ou image fixe
         self.first = 0
+
+    def geom(self, g):
+        return Geom(g, self.mw, self.mh, self.view, self.page, self.kx, self.ky, self.W, self.H, self.stroke)
 
     def load(self, d, tmp, one=None):
         cx, cy, cw, ch = self.crop
@@ -201,40 +236,72 @@ class Panel:
         self.src = np.memmap(raw, np.uint8, "r", shape=(count, ch, cw, 3))
         self.first = a
 
-    def frame_at(self, t, k):
-        """Image calculee de la case (grille fh x fw) a l'instant t ; k = numero d'image de l'export (grain)."""
+    def frame_at(self, t, k, Gm):
+        """Image calculee de la case (grille de Gm) a l'instant t ; k = numero d'image de l'export (grain)."""
         import cv2
         if self.video:
             idx = source_frame(self.edit, self.video, t) - self.first
             img = self.src[max(0, min(len(self.src) - 1, idx))]
         else:
             img = self.src[0]
-        top, bottom, left, right = self.pad
-        if top or bottom or left or right:
-            img = cv2.copyMakeBorder(np.asarray(img), max(0, top), max(0, bottom), max(0, left), max(0, right),
-                                     cv2.BORDER_REPLICATE)
-        c = np.asarray(img, np.float32)
+        if self.full:                                    # source entiere : lue au placement de cet instant
+            px = (np.arange(Gm.fw, dtype=np.float64) + Gm.X0 + 0.5) / self.kx
+            py = (np.arange(Gm.fh, dtype=np.float64) + Gm.Y0 + 0.5) / self.ky
+            sx = ((px - Gm.pl["x"]) / Gm.pl["w"] * self.dw - 0.5).astype(np.float32)
+            sy = ((py - Gm.pl["y"]) / Gm.pl["h"] * self.dh - 0.5).astype(np.float32)
+            c = E.resample(np.asarray(img, np.float32), sx, sy)
+        else:
+            top, bottom, left, right = self.pad
+            if top or bottom or left or right:
+                img = cv2.copyMakeBorder(np.asarray(img), max(0, top), max(0, bottom), max(0, left), max(0, right),
+                                         cv2.BORDER_REPLICATE)
+            c = np.asarray(img, np.float32)
         c *= np.float32(1 / 255)
         c = E.q8(E.base_grade(c, self.grade))
-        return E.chain(c, self.filters, dict(self.ctx, frame=k))
+        return E.chain(c, self.filters, {"unit": self.unit, "units": Gm.units, "seed": self.seed, "frame": k})
 
-    def compose(self, frame, c, bg):
+    def compose(self, frame, c, bg, Gm):
         """Pose la case calculee dans l'image de la page (uint8), opacite = melange avec le fond."""
         import cv2
-        top, bottom, left, right = self.place
+        top, bottom, left, right = Gm.place
         if top < 0 or bottom < 0 or left < 0 or right < 0:          # le polygone elargi deborde de la grille
             c = cv2.copyMakeBorder(c, max(0, -top), max(0, -bottom), max(0, -left), max(0, -right), cv2.BORDER_REPLICATE)
             top, bottom, left, right = max(0, top), max(0, bottom), max(0, left), max(0, right)
         hh, ww = c.shape[:2]
         c = c[top:hh - bottom, left:ww - right]
-        X0, Y0, X1, Y1 = self.box
+        X0, Y0, X1, Y1 = Gm.box
         if self.opacity < 1:
             c = bg + (c - bg) * np.float32(self.opacity)
         reg = frame[Y0:Y1, X0:X1].astype(np.float32) * np.float32(1 / 255)
-        reg += (c - reg) * self.mask
+        reg += (c - reg) * Gm.mask
         reg *= 255
         np.rint(reg, out=reg)
         frame[Y0:Y1, X0:X1] = np.clip(reg, 0, 255).astype(np.uint8)
+
+
+def _strokes(polys, kx, ky, W, H, stroke, color):
+    """Traits des cadres : bande entre le polygone decale de +w/2 et celui de -w/2 (coins en onglet), en pixels a
+    peindre (indices, couverture, couleur)."""
+    import cv2
+    smask = np.zeros((H, W), np.uint8)
+    if stroke > 0:
+        to = lambda poly: np.array([[round((x * kx - 0.5) * 16), round((y * ky - 0.5) * 16)] for x, y in poly], np.int32)
+        for poly in polys:
+            cv2.fillPoly(smask, [to(G.offset(poly, stroke / 2))], 255, lineType=cv2.LINE_AA, shift=4)
+            cv2.fillPoly(smask, [to(G.offset(poly, -stroke / 2))], 0, lineType=cv2.LINE_AA, shift=4)
+    flat = np.flatnonzero(smask.reshape(-1))
+    return flat, (smask.reshape(-1)[flat].astype(np.float32) / 255)[:, None], color
+
+
+def _paint_white(img, poly, kx, ky, W, H):
+    """Case vide : papier blanc (comme l'image de la page)."""
+    box = _box(poly, kx, ky, W, H)
+    X0, Y0, X1, Y1 = box
+    if X1 <= X0 or Y1 <= Y0:
+        return
+    m = (_mask(poly, kx, ky, box).astype(np.float32) / 255)[..., None]
+    reg = img[Y0:Y1, X0:X1].astype(np.float32)
+    img[Y0:Y1, X0:X1] = np.rint(reg + (255 - reg) * m).astype(np.uint8)
 
 
 def prepare(pid, s, tmp, still=None, log=print):
@@ -255,31 +322,40 @@ def prepare(pid, s, tmp, still=None, log=print):
     unit = H / 1000
     stroke = float(page.get("strokeWidth") or 0)
     bg = _hex(page.get("bg"), "#ffffff")
-    base = np.empty((H, W, 3), np.float32)
-    base[:] = bg
+    color = _hex(page.get("stroke"), "#111111")
+    layout = p.get("layout") or {}
+    anim = G.clean_anim(p.get("anim"), layout)
+    panels_by_id = p.get("panels") or {}
+    has_media = lambda panel: (panel.get("video") or {}).get("file") or (panel.get("image") or {}).get("file")
+    base = np.empty((H, W, 3), np.uint8)
+    base[:] = np.rint(bg * 255).astype(np.uint8)
     panels = []
-    for g in geo["panels"]:
-        panel = (p.get("panels") or {}).get(g["id"]) or {}
-        has = (panel.get("video") or {}).get("file") or (panel.get("image") or {}).get("file")
-        if not has:                                       # case vide : papier blanc (comme l'image de la page)
-            box = _box(g["poly"], kx, ky, W, H)
-            m = (_mask(g["poly"], kx, ky, box).astype(np.float32) / 255)[..., None]
-            X0, Y0, X1, Y1 = box
-            base[Y0:Y1, X0:X1] = base[Y0:Y1, X0:X1] * (1 - m) + m
-            continue
-        panels.append(Panel(pid, d, g, panel, page, kx, ky, W, H, unit, stroke))
-    # traits des cadres : bande entre le polygone decale de +w/2 et celui de -w/2 (coins en onglet)
-    import cv2
-    smask = np.zeros((H, W), np.uint8)
-    if stroke > 0:
+    if anim:
+        # cadrage anime : la plus grande taille que prend chaque source pendant l'animation (pour la decoder une fois)
+        fps = s["fps"]
+        times = [still] if still is not None else [i / fps for i in range(max(1, int(round(s["seconds"] * fps))))]
+        biggest = {}
+        for t in times:
+            for g in G.compute(page, G.layout_at(layout, anim, t)):
+                panel = panels_by_id.get(g["id"]) or {}
+                if not has_media(panel):
+                    continue
+                m = panel.get("video") or panel.get("image")
+                pl = G.placement(_bb(g), m["w"], m["h"], panel.get("view"))
+                biggest[g["id"]] = max(biggest.get(g["id"], (0, 0)), (pl["w"] * kx, pl["h"] * ky))
+        for pid_, (dw, dh) in biggest.items():
+            g = {"id": pid_, "rect": [0, 0, 1, 1], "poly": [[0, 0], [1, 0], [1, 1]]}
+            panels.append(Panel(pid, d, g, panels_by_id[pid_], page, kx, ky, W, H, unit, stroke,
+                                full=(max(2, int(math.ceil(dw))), max(2, int(math.ceil(dh))))))
+        stroke_px = None
+    else:
         for g in geo["panels"]:
-            outer = G.offset(g["poly"], stroke / 2)
-            inner = G.offset(g["poly"], -stroke / 2)
-            to = lambda poly: np.array([[round((x * kx - 0.5) * 16), round((y * ky - 0.5) * 16)] for x, y in poly], np.int32)
-            cv2.fillPoly(smask, [to(outer)], 255, lineType=cv2.LINE_AA, shift=4)
-            cv2.fillPoly(smask, [to(inner)], 0, lineType=cv2.LINE_AA, shift=4)
-    flat = np.flatnonzero(smask.reshape(-1))
-    stroke_px = (flat, (smask.reshape(-1)[flat].astype(np.float32) / 255)[:, None], _hex(page.get("stroke"), "#111111"))
+            panel = panels_by_id.get(g["id"]) or {}
+            if not has_media(panel):
+                _paint_white(base, g["poly"], kx, ky, W, H)
+                continue
+            panels.append(Panel(pid, d, g, panel, page, kx, ky, W, H, unit, stroke))
+        stroke_px = _strokes([g["poly"] for g in geo["panels"]], kx, ky, W, H, stroke, color)
     # sources : une case par fil (chaque decodage est un processus ffmpeg)
     t_still = still
 
@@ -287,18 +363,39 @@ def prepare(pid, s, tmp, still=None, log=print):
         pn.load(d, tmp, source_frame(pn.edit, pn.video, t_still) if (still is not None and pn.video) else None)
     with ThreadPoolExecutor(max_workers=max(1, min(4, os.cpu_count() or 2))) as ex:
         list(ex.map(load, panels))
-    base = np.rint(np.clip(base, 0, 1) * 255).astype(np.uint8)
     return {"p": p, "d": d, "W": W, "H": H, "base": base, "bg": bg, "panels": panels, "stroke": stroke_px,
-            "page": page}
+            "page": page, "layout": layout, "anim": anim, "kx": kx, "ky": ky, "stroke_w": stroke, "color": color}
 
 
-def render(P, n, fps):
-    """Image n de l'export (uint8 H x W x 3)."""
+def frame_geometry(P, t):
+    """Page au cadrage anime : les cases a l'instant t ({id: case calculee})."""
+    return {g["id"]: g for g in G.compute(P["page"], G.layout_at(P["layout"], P["anim"], t))}
+
+
+def render(P, n, fps, keep=None):
+    """Image n de l'export (uint8 H x W x 3). keep : dict qui recoit les traits de l'image (controle)."""
     t = n / fps
     out = P["base"].copy()
-    for pn in P["panels"]:
-        pn.compose(out, pn.frame_at(t, n), P["bg"])
-    flat, a, sc = P["stroke"]
+    if P["anim"]:
+        geo = frame_geometry(P, t)
+        ids = {pn.id for pn in P["panels"]}
+        for g in geo.values():
+            if g["id"] not in ids:
+                _paint_white(out, g["poly"], P["kx"], P["ky"], P["W"], P["H"])
+        for pn in P["panels"]:
+            g = geo.get(pn.id)
+            if g is None:                                  # case refermee a cet instant
+                continue
+            Gm = pn.geom(g)
+            pn.compose(out, pn.frame_at(t, n, Gm), P["bg"], Gm)
+        strokes = _strokes([g["poly"] for g in geo.values()], P["kx"], P["ky"], P["W"], P["H"], P["stroke_w"], P["color"])
+    else:
+        for pn in P["panels"]:
+            pn.compose(out, pn.frame_at(t, n, pn.G), P["bg"], pn.G)
+        strokes = P["stroke"]
+    if keep is not None:
+        keep["stroke"] = strokes
+    flat, a, sc = strokes
     if len(flat):
         o = out.reshape(-1, 3)
         o[flat] = np.rint(o[flat].astype(np.float32) * (1 - a) + sc * 255 * a).astype(np.uint8)
@@ -345,16 +442,21 @@ def compare(pid, png, t):
         if (P["W"], P["H"]) != (W, H):
             raise ValueError(f"capture {W}x{H}, export {P['W']}x{P['H']} : capturer a la taille de l'export")
         n = int(round(t * s["fps"]))
-        exp = render(P, n, s["fps"])
-        flat = P["stroke"][0]
+        keep = {}
+        exp = render(P, n, s["fps"], keep)
+        flat = keep["stroke"][0]
         stroke = np.zeros(H * W, np.uint8)
         stroke[flat] = 255
         stroke = cv2.dilate(stroke.reshape(H, W), np.ones((7, 7), np.uint8))
         diff = np.abs(cap.astype(np.int16) - exp.astype(np.int16)).astype(np.uint8)
         stats = []
+        geo = frame_geometry(P, n / s["fps"]) if P["anim"] else {}
         for pn in P["panels"]:
-            X0, Y0, X1, Y1 = pn.box
-            zone = (pn.mask[..., 0] > 0.99) & (stroke[Y0:Y1, X0:X1] == 0)
+            if P["anim"] and pn.id not in geo:
+                continue
+            Gm = pn.geom(geo[pn.id]) if P["anim"] else pn.G
+            X0, Y0, X1, Y1 = Gm.box
+            zone = (Gm.mask[..., 0] > 0.99) & (stroke[Y0:Y1, X0:X1] == 0)
             d = diff[Y0:Y1, X0:X1][zone]
             if not d.size:
                 continue

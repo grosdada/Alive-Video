@@ -19,6 +19,9 @@
  *   Tailles des effets en millemes de la hauteur de la page : meme rendu a toute resolution.
  * Temps : image montree = sourceFrame(fx, media, t), meme regle que l'export (debut / fin, vitesse, envers, boucle).
  *
+ * Cadrage anime (donnees : layout, anim, pagep) : le decoupage suit des images cles ; la page entiere (fond, cases vides,
+ * videos, traits) est alors dessinee dans le canevas a chaque instant (page.jpg et frames.png caches).
+ *
  * API : AlivePlayer.mount(conteneur, donnees, { base, stamp, mode: "all" | "hover", autoplay }) -> instance
  *       AlivePlayer.play(inst, bool), seek(inst, t), setMode(inst, mode), setBW(bool), setSound(bool), resetAll()
  *       Mode edition : setEditHook, addView, setFx, setView, updatePanel, setLayerVolume, setGlobalVolume, setPageSound,
@@ -85,6 +88,126 @@
     return [fr(k * 0.7548776662466927 + seed * 0.3819660112501051) * 256, fr(k * 0.5698402909980532 + seed * 0.6180339887498949) * 256];
   }
 
+  // ---------------------------------------------------------------- cadrage anime (« Animate framing »)
+  // Le decoupage de la page bouge avec le temps : chaque bout de trait a sa piste d'images cles. Memes calculs que
+  // app/web/js/geometry.js (editeur) et app/geometry.py (export video) : decoupe, courbes, traits en onglet.
+  function ease(e, u) {
+    if (e === "linear") return u;
+    if (e === "in") return u * u * u;
+    if (e === "out") return 1 - (1 - u) * (1 - u) * (1 - u);
+    if (e === "hold") return 0;
+    return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+  }
+  function trackValue(keys, t, fb) {
+    if (!keys || !keys.length) return fb;
+    if (t <= keys[0].t) return keys[0].v;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const k0 = keys[i], k1 = keys[i + 1];
+      if (t < k1.t) return k0.v + (k1.v - k0.v) * ease(k0.e, (t - k0.t) / Math.max(1e-9, k1.t - k0.t));
+    }
+    return keys[keys.length - 1].v;
+  }
+  const hasAnim = (a) => !!a && Object.values(a.tracks || {}).some(k => k && k.length);
+  function layoutAt(layout, anim, t) {
+    const T = anim.tracks;
+    const walk = (n) => n.t === "leaf" ? n : Object.assign({}, n, {
+      a: trackValue(T[n.id + ".a"], t, n.a), b: trackValue(T[n.id + ".b"], t, n.b), c: [walk(n.c[0]), walk(n.c[1])] });
+    return walk(layout);
+  }
+  function gbbox(poly) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+  }
+  function clipHalf(poly, f) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const P = poly[i], Q = poly[(i + 1) % poly.length], fp = f(P), fq = f(Q);
+      if (fp <= 0) out.push(P);
+      if ((fp < 0 && fq > 0) || (fp > 0 && fq < 0)) { const t = fp / (fp - fq); out.push([P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]); }
+    }
+    return out;
+  }
+  // cases de la page : { id: polygone } (les cases refermees n'y sont pas)
+  function computeLayout(pg, layout) {
+    const m = +pg.margin, W = +pg.width, H = +pg.height, g = +pg.gutter, out = {};
+    (function walk(node, poly) {
+      if (!node) return;
+      if (node.t === "leaf") { if (poly.length >= 3) out[node.id] = poly; return; }
+      if (poly.length < 3) { walk(node.c[0], []); walk(node.c[1], []); return; }
+      const bb = gbbox(poly);
+      let P, Q;
+      if (node.dir === "h") { P = [bb.x0, bb.y0 + node.a * bb.h]; Q = [bb.x1, bb.y0 + node.b * bb.h]; }
+      else { P = [bb.x0 + node.a * bb.w, bb.y0]; Q = [bb.x0 + node.b * bb.w, bb.y1]; }
+      const dx = Q[0] - P[0], dy = Q[1] - P[1], L = Math.hypot(dx, dy) || 1;
+      let n = [-dy / L, dx / L];
+      if (node.dir === "h" && n[1] < 0) n = [-n[0], -n[1]];
+      if (node.dir === "v" && n[0] < 0) n = [-n[0], -n[1]];
+      const f = (X) => n[0] * (X[0] - P[0]) + n[1] * (X[1] - P[1]);
+      const A = clipHalf(poly, (X) => f(X) + g / 2), B = clipHalf(poly, (X) => -f(X) + g / 2);
+      walk(node.c[0], A.length >= 3 ? A : []);
+      walk(node.c[1], B.length >= 3 ? B : []);
+    })(layout, [[m, m], [W - m, m], [W - m, H - m], [m, H - m]]);
+    return out;
+  }
+  // polygone elargi depuis son centre (la video passe sous le trait), arrondi au dixieme comme app/geometry.py grow
+  function grow(poly, px) {
+    let cx = 0, cy = 0;
+    for (const [x, y] of poly) { cx += x; cy += y; }
+    cx /= poly.length; cy /= poly.length;
+    return poly.map(([x, y]) => {
+      const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy) || 1;
+      return [Math.round((x + dx / d * px) * 10) / 10, Math.round((y + dy / d * px) * 10) / 10];
+    });
+  }
+  // polygone convexe decale de d vers l'exterieur (coins en onglet) : un trait = decale(+w/2) moins decale(-w/2)
+  function offsetPoly(poly, d) {
+    const n = poly.length;
+    let s2 = 0;
+    for (let i = 0; i < n; i++) { const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % n]; s2 += x1 * y2 - x2 * y1; }
+    const sign = s2 > 0 ? 1 : -1, lines = [];
+    for (let i = 0; i < n; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % n], dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1;
+      lines.push([[x1 + dy / L * sign * d, y1 - dx / L * sign * d], [dx, dy]]);
+    }
+    return lines.map((cur, i) => {
+      const [p, r] = lines[(i - 1 + n) % n], [q, s] = cur, den = r[0] * s[1] - r[1] * s[0];
+      if (Math.abs(den) < 1e-9) return [q[0], q[1]];
+      const t = ((q[0] - p[0]) * s[1] - (q[1] - p[1]) * s[0]) / den;
+      return [p[0] + r[0] * t, p[1] + r[1] * t];
+    });
+  }
+  // la page a l'instant de son horloge : cases (boite, polygone elargi), cases vides, traits
+  function updateGeometry(inst) {
+    if (!inst.anim) return;
+    const M = inst.data, pg = M.pagep, sw = +pg.strokeWidth || 0;
+    const polys = computeLayout(pg, layoutAt(M.layout, M.anim, inst.t));
+    const key = JSON.stringify(polys);
+    if (key === inst.geoKey) return;
+    inst.geoKey = key;
+    inst.exact = polys;
+    inst.strokes = sw > 0 ? Object.values(polys).map(p => [offsetPoly(p, sw / 2), offsetPoly(p, -sw / 2)]) : [];
+    for (const st of inst.panels) {
+      const poly = polys[st.p.id];
+      st.live = !!poly;
+      if (poly) { const b = gbbox(poly); st.p.rect = [b.x0, b.y0, b.x1, b.y1]; st.p.poly = grow(poly, sw / 2 + 1); }
+      placeEl(st);
+    }
+    for (const R of renderers) if (R.owner === inst || R.items.size) R.dirty = true;
+  }
+  // l'element de la case (gestes, survol) suit sa forme
+  function placeEl(st) {
+    const el = st.el, [PW, PH] = st.inst.data.size, [x0, y0, x1, y1] = st.p.rect;
+    el.hidden = st.live === false;
+    if (st.live === false) return;
+    Object.assign(el.style, { left: x0 / PW * 100 + "%", top: y0 / PH * 100 + "%",
+                              width: (x1 - x0) / PW * 100 + "%", height: (y1 - y0) / PH * 100 + "%" });
+    if (st.p.poly) {
+      const w = Math.max(1e-6, x1 - x0), hh = Math.max(1e-6, y1 - y0);
+      el.style.clipPath = `polygon(${st.p.poly.map(([x, y]) => `${(x - x0) / w * 100}% ${(y - y0) / hh * 100}%`).join(", ")})`;
+    }
+  }
+
   // ---------------------------------------------------------------- une page
   function mount(container, M, opts) {
     opts = opts || {};
@@ -101,7 +224,8 @@
     const canvas = node("canvas", "ac-canvas", pageEl);
     const inst = { pageEl, canvas, panels: [], data: M, base, stamp: opts.stamp || "", fps: M.fps || 30,
                    duration: Math.max(0.2, M.duration || 5), t: 0, playing: opts.autoplay !== false,
-                   mode: opts.mode || "all", bg: hexRgb(M.bg), sounds: [] };
+                   mode: opts.mode || "all", bg: hexRgb(M.bg), sounds: [],
+                   anim: !!(M.layout && M.pagep && hasAnim(M.anim)) };
     for (const p of M.panels) makePanel(inst, p);
     if (M.frames) {
       const fr = node("img", "ac-frames", pageEl);
@@ -110,6 +234,7 @@
     inst.R = makeRenderer(canvas, "page", inst);
     if (inst.R) {
       for (const st of inst.panels) if (st.kind) inst.R.add(st);
+      if (inst.anim) { pageEl.classList.add("ac-anim"); updateGeometry(inst); }   // le canevas dessine toute la page
       const ro = new ResizeObserver(() => inst.R && inst.R.fit());
       ro.observe(pageEl);
       inst.ro = ro;
@@ -124,16 +249,9 @@
 
   function makePanel(inst, p) {
     const el = node("div", "ac-panel", inst.pageEl);
-    const [PW, PH] = inst.data.size;
-    const [x0, y0, x1, y1] = p.rect;
-    Object.assign(el.style, { left: x0 / PW * 100 + "%", top: y0 / PH * 100 + "%",
-                              width: (x1 - x0) / PW * 100 + "%", height: (y1 - y0) / PH * 100 + "%" });
-    if (p.poly) {
-      const pts = p.poly.map(([x, y]) => `${(x - x0) / (x1 - x0) * 100}% ${(y - y0) / (y1 - y0) * 100}%`);
-      el.style.clipPath = `polygon(${pts.join(", ")})`;
-    }
     const st = { p, inst, el, kind: p.media ? p.media.kind : null, serial: 0, fxv: 1, clock: 0, over: false,
                  pinned: false, pinSound: false, scrubFrame: null, sounds: [], views: [] };
+    placeEl(st);
     if (!st.kind) el.classList.add("empty");
     loadMedia(st);
     buildSounds(st);
@@ -261,6 +379,7 @@
   }
   function stepPage(inst, dt) {
     if (inst.playing) inst.t = (inst.t + dt) % inst.duration;
+    updateGeometry(inst);
     for (const st of inst.panels) {
       if (inst.mode === "hover" && active(st)) st.clock = (st.clock + dt) % inst.duration;
       if (st.kind === "video") syncVideo(st);
@@ -273,6 +392,7 @@
   function seek(inst, t) {
     inst.t = ((t % inst.duration) + inst.duration) % inst.duration;
     for (const st of inst.panels) { st.clock = inst.t; st.scrubFrame = null; }
+    updateGeometry(inst);
   }
   function setMode(inst, mode) {
     inst.mode = mode === "hover" ? "hover" : "all";
@@ -303,6 +423,7 @@
   // ---------------------------------------------------------------- WebGL : programmes
   const VS_QUAD = "attribute vec2 aP; varying vec2 v; void main(){ v = aP * 0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }";
   const VS_POLY = "attribute vec2 aP; attribute vec2 aT; varying vec2 v; void main(){ v = aT; gl_Position = vec4(aP, 0.0, 1.0); }";
+  const VS_SOLID = "attribute vec2 aP; varying vec2 v; void main(){ v = vec2(0.0); gl_Position = vec4(aP, 0.0, 1.0); }";
   const HEAD = `#ifdef GL_FRAGMENT_PRECISION_HIGH
     precision highp float;
     #else
@@ -373,6 +494,8 @@
         vec2 d = v - 0.5;
         gl_FragColor = vec4(texture2D(uT, 0.5 + d * (1.0 + uK)).r, texture2D(uT, v).g, texture2D(uT, 0.5 + d * (1.0 - uK)).b, 1.0);
       }`,
+    // page animee : cases vides (blanc) et traits, en couleur unie
+    solid: `uniform vec3 uC; void main(){ gl_FragColor = vec4(uC, 1.0); }`,
     // pose de la case dans la page : opacite = melange avec la couleur du fond
     final: `uniform float uOp; uniform vec3 uBg;
       void main(){ gl_FragColor = vec4(mix(uBg, texture2D(uT, v).rgb, uOp), 1.0); }`,
@@ -405,7 +528,7 @@
     };
     const P = {};
     for (const [k, fs] of Object.entries(FS)) {
-      P[k] = compile(k === "final" ? VS_POLY : VS_QUAD, fs);
+      P[k] = compile(k === "final" ? VS_POLY : k === "solid" ? VS_SOLID : VS_QUAD, fs);
       if (!P[k]) return null;
     }
     const quad = gl.createBuffer();
@@ -585,10 +708,10 @@
       let changed = false;
       for (const it of R.items.values()) {
         const st = it.st;
-        if (!st.ready || !st.kind) continue;
+        if (!st.ready || !st.kind || st.live === false) continue;
         const L = layout(it), fx = st.p.fx || {};
         const grainOn = (fx.filters || []).some(f => f.on !== false && f.type === "grain" && f.animated !== false && f.amount > 0);
-        const key = [st.serial, st.fxv, L.w, L.h, L.X0, L.Y0, grainOn ? Math.floor(clockOf(st) * st.inst.fps + 1e-6) : 0,
+        const key = [st.serial, st.fxv, L.w, L.h, L.X0, L.Y0, st.p.rect.join(","), grainOn ? Math.floor(clockOf(st) * st.inst.fps + 1e-6) : 0,
                      grainImage().complete].join("|");
         if (key === it.key && !force) continue;
         if (it.serial !== st.serial || !it.media) { if (!upload(it)) continue; it.serial = st.serial; }
@@ -600,12 +723,36 @@
       R.dirty = false;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+      const animPage = kind === "page" && owner.anim, [PW0, PH0] = kind === "page" ? owner.data.size : [1, 1];
+      const toClip = (pts) => pts.map(([x, y]) => [x / PW0 * 2 - 1, 1 - y / PH0 * 2]);
+      const solid = (tris, rgb) => {                // triangles en couleur unie (coordonnees de page)
+        if (!tris.length) return;
+        gl.useProgram(P.solid.p);
+        gl.bindBuffer(gl.ARRAY_BUFFER, polyBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tris), gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(P.solid.aP); gl.vertexAttribPointer(P.solid.aP, 2, gl.FLOAT, false, 8, 0);
+        gl.uniform3f(P.solid.u.uC, rgb[0], rgb[1], rgb[2]);
+        gl.drawArrays(gl.TRIANGLES, 0, tris.length / 2);
+      };
+      const fan = (pts) => { const V = toClip(pts), out = []; for (let i = 1; i < V.length - 1; i++) out.push(...V[0], ...V[i], ...V[i + 1]); return out; };
+      if (animPage) {                               // fond, puis cases vides en blanc (comme page.jpg)
+        const bg = owner.bg;
+        gl.clearColor(bg[0], bg[1], bg[2], 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const tris = [];
+        for (const st of owner.panels) {
+          const poly = (owner.exact || {})[st.p.id];
+          if (poly && !(st.kind && st.ready)) tris.push(...fan(poly));
+        }
+        solid(tris, [1, 1, 1]);
+      } else {
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
       const prog = P.final;
       gl.useProgram(prog.p);
       for (const it of R.items.values()) {
-        if (!it.out || !it.L) continue;
+        if (!it.out || !it.L || it.st.live === false) continue;
         const st = it.st, L = it.L, fx = st.p.fx || {}, [PW, PH] = st.inst.data.size;
         let verts;
         if (kind === "page") {
@@ -626,6 +773,15 @@
         const bg = st.inst.bg;
         gl.uniform3f(prog.u.uBg, bg[0], bg[1], bg[2]);
         gl.drawArrays(gl.TRIANGLES, 0, verts.length / 4);
+      }
+      gl.disableVertexAttribArray(prog.aT);
+      if (animPage && (owner.strokes || []).length) {   // traits des cadres : bande entre les deux polygones decales
+        const tris = [], stroke = hexRgb(owner.data.pagep.stroke || "#111111");
+        for (const [outer, inner] of owner.strokes) {
+          const O = toClip(outer), I = toClip(inner), n = O.length;
+          for (let i = 0; i < n; i++) { const j = (i + 1) % n; tris.push(...O[i], ...O[j], ...I[j], ...O[i], ...I[j], ...I[i]); }
+        }
+        solid(tris, stroke);
       }
       if (R.onDraw) R.onDraw();
     };
@@ -725,6 +881,8 @@
     const wasPlaying = inst.playing;
     inst.playing = false;
     seek(inst, t);
+    inst.geoKey = null;
+    updateGeometry(inst);
     inst.R.fit(W, H);
     inst.R.frozen = true;
     const waits = [];
@@ -746,9 +904,9 @@
     const g = out.getContext("2d");
     const R = inst.R;
     R.onDraw = () => {
-      g.drawImage(inst.pageEl.querySelector(".ac-bg"), 0, 0, W, H);
+      if (!inst.anim) g.drawImage(inst.pageEl.querySelector(".ac-bg"), 0, 0, W, H);
       g.drawImage(R.canvas, 0, 0, W, H);
-      g.drawImage(inst.pageEl.querySelector(".ac-frames"), 0, 0, W, H);
+      if (!inst.anim) g.drawImage(inst.pageEl.querySelector(".ac-frames"), 0, 0, W, H);
     };
     R.draw(true);
     R.onDraw = null;

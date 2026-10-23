@@ -111,6 +111,7 @@ footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line);
       <li><a href="#planche">Fabriquer une planche</a></li>
       <li><a href="#videos">Les vidéos des cases</a></li>
       <li><a href="#editeur">L'éditeur de case</a></li>
+      <li><a href="#animate">Animate framing : le cadrage animé</a></li>
       <li><a href="#effets">Les effets, formule par formule</a></li>
       <li><a href="#lecteur">Le lecteur</a></li>
       <li><a href="#export">L'export vidéo</a></li>
@@ -224,7 +225,8 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
     <tr><td><code>review</code></td><td><span class="dot todo"></span><code>null</code> à voir · <span class="dot ok"></span><code>"ok"</code> · <span class="dot redo"></span><code>"redo"</code> à retoucher.</td></tr>
   </table></div>
   <p>Au niveau de la planche : <code>name</code>, <code>page</code> (format, sens, taille, fond, traits, gouttière, marge),
-    <code>layout</code> (arbre de découpes), <code>geometry</code> (cases calculées), <code>pageSound</code> (musique),
+    <code>layout</code> (arbre de découpes, chaque trait avec son <code>id</code>), <code>anim</code> (cadrage animé, § 7 bis),
+    <code>geometry</code> (cases calculées, page finie), <code>pageSound</code> (musique),
     <code>export {duration (null = auto), height, fps}</code>, <code>published</code>, <code>rev</code>.</p>
   <div class="note"><p>Qui écrit quoi : l'application garde la main sur le découpage, les médias et le cadrage ; le serveur et
     l'aperçu sur <code>edit</code>, <code>extraSounds</code>, <code>review</code>, <code>export</code> et <code>published</code>
@@ -302,6 +304,35 @@ image = b - k si à l'envers, sinon a + k</code></pre>
   <div class="note"><p>La capture de l'autre logiciel (onglets Transform | Effects | Anim) n'est pas arrivée avec la demande :
     l'onglet Filtres suit la liste écrite (effets ajoutés à la demande, réglés, empilés ; opacité, vitesse, envers, volume).
     À ajuster sur la capture si la présentation doit coller davantage.</p></div>
+</section>
+
+<section id="animate">
+  <div class="sec-head"><p class="eyebrow">7 bis · Le découpage qui bouge</p><h2>Animate framing</h2></div>
+  <p>Les traits des cases s'animent dans le temps : une case s'ouvre, une autre se dédouble, un trait bascule. Bouton
+    <b>🎞 Animate framing</b> dans la barre du haut de l'éditeur de planche : une timeline s'ouvre sous la planche.</p>
+  <ul>
+    <li><b>Une ligne par point d'attache</b> : chaque trait a deux bouts (gauche / droit pour un trait horizontal, haut / bas
+      pour un vertical), donc deux lignes ; les losanges sont les images clés.</li>
+    <li><b>Toucher une attache</b> dans la planche met la timeline sur sa ligne (la poignée du milieu : les deux lignes du
+      trait), et le trait passe en évidence.</li>
+    <li><b>Glisser une attache</b> pose une clé à l'instant de la tête de lecture. La première clé d'une ligne en pose aussi
+      une à 0 s avec la position de départ : le trait part de là où il était. En mode animation, une case peut se refermer
+      entièrement (trait collé au bord) : elle disparaît à ces instants.</li>
+    <li>Timeline : clic = tête de lecture ; glisser un losange = changer son instant ; double-clic = une clé ;
+      « ◆ Clé ici » ; « Courbe » de la clé choisie (douce, linéaire, accélère, ralentit, palier : la courbe vaut jusqu'à la
+      clé suivante) ; « ✕ Clé » ou Suppr ; « Effacer le trait » (il garde sa position du moment) ; barre espace = lecture.
+      Les clés tombent sur les images de la vidéo exportée.</li>
+    <li>Hors du mode : la planche montre la page finie (fin de l'animation) ; glisser un trait animé décale toute son
+      animation. Un nouveau découpage retire l'animation (Ctrl+Z la rend).</li>
+    <li>La vidéo d'une case suit sa case : elle la remplit toujours (couverture × zoom du cadrage), recadrée à chaque instant.</li>
+    <li>Durée automatique de la page : au moins la fin de l'animation + 1 s.</li>
+  </ul>
+  <p>Données : chaque trait (<code>split</code> de <code>layout</code>) a un <code>id</code> (c1, c2…) ;
+    <code>project.anim = {tracks: {"c2.a": [{t, v, e}]}}</code> (t en secondes, v de 0 à 1 comme <code>a</code> / <code>b</code>,
+    e = courbe). Interpolation identique dans <code>app/web/js/geometry.js</code> (éditeur), <code>player/alive-player.js</code>
+    (lecteur : la page entière, fond, cases vides et traits compris, est alors dessinée par le canevas) et
+    <code>app/geometry.py</code> (export : cases recalculées à chaque image, sources décodées entières puis lues au placement
+    du moment). Contrôle lecteur / export sur une page animée : 1 à 2,4 / 255 d'écart moyen, traits au même pixel.</p>
 </section>
 
 <section id="effets">

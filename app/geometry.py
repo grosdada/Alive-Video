@@ -84,6 +84,10 @@ def compute(page, layout):
         if node["t"] == "leaf":
             panels.append({"id": node["id"], "poly": poly, "bbox": bbox(poly) if len(poly) >= 3 else None})
             return
+        if len(poly) < 3:                  # case refermee (animation) : ses sous-cases n'existent pas a cet instant
+            walk(node["c"][0], [])
+            walk(node["c"][1], [])
+            return
         bb = bbox(poly)
         P, n = _cut_line(node, bb)[0], _cut_line(node, bb)[2]
         f = lambda X: n[0] * (X[0] - P[0]) + n[1] * (X[1] - P[1])
@@ -160,6 +164,106 @@ def offset(poly, d):
     return out
 
 
+# ------------------------------------------------------------------ animation du cadrage (« Animate framing »)
+# Chaque trait a un identifiant (c1, c2...) ; chacun de ses deux bouts (a, b) peut avoir une piste d'images cles :
+# anim = {"tracks": {"c2.a": [{"t": secondes, "v": 0..1, "e": courbe}]}}. Entre deux cles, la valeur suit la courbe
+# de la premiere. MEME CALCUL que app/web/js/geometry.js et player/alive-player.js.
+EASES = ("ease", "linear", "in", "out", "hold")
+
+
+def ease(e, u):
+    if e == "linear":
+        return u
+    if e == "in":
+        return u * u * u
+    if e == "out":
+        return 1 - (1 - u) * (1 - u) * (1 - u)
+    if e == "hold":
+        return 0.0
+    return 4 * u * u * u if u < 0.5 else 1 - (-2 * u + 2) ** 3 / 2
+
+
+def track_value(keys, t, fallback):
+    if not keys:
+        return fallback
+    if t <= keys[0]["t"]:
+        return keys[0]["v"]
+    for k0, k1 in zip(keys, keys[1:]):
+        if t < k1["t"]:
+            u = (t - k0["t"]) / max(1e-9, k1["t"] - k0["t"])
+            return k0["v"] + (k1["v"] - k0["v"]) * ease(k0.get("e"), u)
+    return keys[-1]["v"]
+
+
+def has_anim(anim):
+    return bool(anim) and any((anim.get("tracks") or {}).values())
+
+
+def layout_at(layout, anim, t):
+    """Le decoupage a l'instant t (arbre recopie, bouts animes remplaces)."""
+    if not has_anim(anim):
+        return layout
+    T = anim["tracks"]
+
+    def walk(n):
+        if n["t"] == "leaf":
+            return n
+        return dict(n, a=track_value(T.get(f"{n.get('id')}.a"), t, n["a"]),
+                    b=track_value(T.get(f"{n.get('id')}.b"), t, n["b"]), c=[walk(n["c"][0]), walk(n["c"][1])])
+    return walk(layout)
+
+
+def anim_end(anim):
+    return max([k["t"] for keys in ((anim or {}).get("tracks") or {}).values() for k in keys or []] or [0.0])
+
+
+def cut_ids(node, out=None):
+    out = [] if out is None else out
+    if node and node["t"] == "split":
+        if node.get("id"):
+            out.append(node["id"])
+        cut_ids(node["c"][0], out)
+        cut_ids(node["c"][1], out)
+    return out
+
+
+def ensure_cut_ids(layout):
+    """Donne un identifiant aux traits qui n'en ont pas (modifie l'arbre) ; meme regle que l'editeur."""
+    n = [max([int(i[1:]) for i in cut_ids(layout) if i[1:].isdigit()] or [0])]
+
+    def walk(x):
+        if not x or x["t"] != "split":
+            return
+        if not x.get("id"):
+            n[0] += 1
+            x["id"] = f"c{n[0]}"
+        walk(x["c"][0])
+        walk(x["c"][1])
+    walk(layout)
+    return layout
+
+
+def clean_anim(anim, layout, max_t=600.0):
+    """Pistes propres : traits existants, cles triees, valeurs 0..1, une cle par instant, courbes connues."""
+    ids = set(cut_ids(layout))
+    out = {}
+    for key, keys in ((anim or {}).get("tracks") or {}).items():
+        cid, _, end = str(key).rpartition(".")
+        if cid not in ids or end not in ("a", "b") or not isinstance(keys, list):
+            continue
+        clean = {}
+        for k in keys:
+            try:
+                t = round(max(0.0, min(max_t, float(k["t"]))), 4)
+                v = round(max(0.0, min(1.0, float(k["v"]))), 5)
+            except (KeyError, TypeError, ValueError):
+                continue
+            clean[t] = {"t": t, "v": v, "e": k.get("e") if k.get("e") in EASES else "ease"}
+        if clean:
+            out[key] = [clean[t] for t in sorted(clean)]
+    return {"tracks": out} if out else {}
+
+
 # ------------------------------------------------------------------ decoupages prets (memes que l'editeur)
 def _L(new):
     return {"t": "leaf", "id": new()}
@@ -202,7 +306,7 @@ def make_layout(preset, start=1):
     def new():
         n[0] += 1
         return f"p{n[0]}"
-    return PRESETS[preset][1](lambda: _L(new)), n[0] + 1
+    return ensure_cut_ids(PRESETS[preset][1](lambda: _L(new))), n[0] + 1
 
 
 def random_layout(count, tilt=0.05, seed=None, start=1):
@@ -224,7 +328,7 @@ def random_layout(count, tilt=0.05, seed=None, start=1):
         pos = k1 / k * 0.6 + 0.2 + (rnd.random() - 0.5) * 0.1
         w1, h1, w2, h2 = (w, h * pos, w, h * (1 - pos)) if d == "h" else (w * pos, h, w * (1 - pos), h)
         return _S(d, tilted(pos), tilted(pos), build(k1, w1, h1), build(k - k1, w2, h2))
-    return build(count, 2, 3), n[0] + 1
+    return ensure_cut_ids(build(count, 2, 3)), n[0] + 1
 
 
 def leaves(node, out=None):

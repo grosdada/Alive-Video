@@ -86,7 +86,8 @@ def page_key(p, d):
     page_sound = {k: ps.get(k) for k in ("mode", "file", "volume")}
     if ps.get("file"):
         page_sound["mtime"] = _mtime(d / ps["file"])
-    blob = {"v": 1, "name": p.get("name"), "geometry": p.get("geometry"), "pageSound": page_sound,
+    blob = {"v": 2, "name": p.get("name"), "geometry": p.get("geometry"), "pageSound": page_sound,
+            "layout": p.get("layout"), "anim": p.get("anim"),
             "page": p.get("page"), "export": videoexport.settings_of(p), "panels": panels,
             "files": [_mtime(d / "page" / n) for n in ("page.jpg", "frames.png")],
             "player": [_mtime(PLAYER / n) for n in ("book.html", *PLAYER_FILES)]}
@@ -137,8 +138,18 @@ def _build(pid, log=print, force=False):
     s = videoexport.settings_of(p)
     data = {"page": "page.jpg", "frames": "frames.png", "size": geo["size"], "fps": s["fps"], "duration": s["seconds"],
             "bg": page.get("bg") or "#ffffff", "panels": []}
+    anim = G.clean_anim(p.get("anim"), p.get("layout") or {})
+    if anim:                                         # cadrage anime : le lecteur recalcule les cases a chaque instant
+        data.update(layout=p["layout"], anim=anim, pagep={
+            "width": geo["size"][0], "height": geo["size"][1], "margin": page.get("margin"), "gutter": page.get("gutter"),
+            "strokeWidth": page.get("strokeWidth"), "stroke": page.get("stroke") or "#111111", "bg": page.get("bg") or "#ffffff"})
     report, encoded = [], []
-    for g in geo["panels"]:
+    cases = list(geo["panels"])
+    if anim:                                         # cases refermees dans la page finie : presentes a d'autres instants
+        known = {g["id"] for g in cases}
+        cases += [{"id": i, "rect": [0, 0, 1, 1], "poly": [[0, 0], [1, 0], [1, 1], [0, 1]]}
+                  for i in G.leaves(p.get("layout") or {}) if i not in known]
+    for g in cases:
         panel = p["panels"].get(g["id"]) or {}
         entry = {"id": g["id"], "rect": [round(v, 1) for v in g["rect"]], "poly": G.grow(g["poly"], stroke / 2 + 1),
                  "view": E.clean_view(panel.get("view"))}

@@ -1,6 +1,8 @@
 // Alive-Video : application (etat, projets, edition des planches, videos dans les cases, export video, livres).
 import { get, post, put, upload, uploadSound, h, toast, debounce, modal } from "./api.js";
-import { compute, PRESETS, PAGE_DEFAULTS, FORMATS, pageSize, transpose, randomLayout, removeLeaf, splitLeaf, leaves } from "./geometry.js";
+import { compute, PRESETS, PAGE_DEFAULTS, FORMATS, pageSize, transpose, randomLayout, removeLeaf, splitLeaf, leaves,
+         layoutAt, ensureCutIds, animEnd, cutIdsOf } from "./geometry.js";
+import { Timeline } from "./timeline.js";
 import { Editor, icon, media } from "./editor.js";
 import { pageImages } from "./exporter.js";
 import { mediaForm, playForm, soundsForm, pageForm, fmtSec } from "./forms.js";
@@ -19,6 +21,10 @@ class App {
     this.pageSoon = debounce(() => this.uploadPage(), 2500);
     this.commitSoon = debounce((k) => this.commit(k), 350);
     this.editSoon = new Map();
+    this.animMode = false;          // « Animate framing » : timeline ouverte, les attaches posent des cles
+    this.animT = 0;
+    this.animPlaying = false;
+    this.selectedCut = null;
   }
 
   async init() {
@@ -389,17 +395,25 @@ class App {
     if (P.page.format === "paysage") Object.assign(P.page, { format: "ecran", orientation: "paysage" });
     P.nextId = P.nextId || (Math.max(0, ...leaves(P.layout).map(id => +id.slice(1) || 0)) + 1);
     for (const id of leaves(P.layout)) P.panels[id] = Object.assign(NEW_PANEL(), P.panels[id] || {});
+    ensureCutIds(P.layout);                              // chaque trait a un identifiant (pistes d'animation)
+    P.anim = P.anim && P.anim.tracks ? P.anim : { tracks: {} };
+    const keepAnim = this.animMode && this._reloading;
     this.selected = null; this.undo = []; this.redo = [];
+    this.animPlaying = false;
+    if (!keepAnim) { this.animMode = false; this.animT = 0; this.selectedCut = null; }
+    this.timeline = null;
     this.root.textContent = "";
     this.root.append(this.topbar(false));
     this.left = h("aside.left");
     this.center = h("section.center");
     this.right = h("aside.right");
-    this.root.append(h("div.work", this.left, this.center, this.right));
+    this.tlHost = h("div.tlhost", { hidden: true });
+    this.root.append(h("div.work", this.left, this.center, this.right), this.tlHost);
     this.editor = new Editor(this.center, this);
     this.editor.render();
     this.renderLeft();
     this.refreshInspector();
+    if (keepAnim) this.setAnimMode(true);
     this.save(true);
   }
 
@@ -414,6 +428,10 @@ class App {
       bar.append(name,
         h("button.icon", { title: "Annuler (Ctrl+Z)", on: { click: () => this.doUndo() } }, "↶"),
         h("button.icon", { title: "Rétablir (Ctrl+Y)", on: { click: () => this.doRedo() } }, "↷"));
+      this.animBtn = h("button.animbtn" + (this.animMode ? ".on" : ""), {
+        title: "Animer le cadrage : une timeline s'ouvre, chaque attache des traits a sa ligne ; glisser une attache pose une clé",
+        on: { click: () => this.setAnimMode(!this.animMode) } }, "🎞 Animate framing");
+      bar.append(this.animBtn);
     }
     this.exportChip = h("span.calc.top-calc");
     bar.append(h("span.sp"), this.exportChip);
@@ -462,16 +480,18 @@ class App {
     const P = this.project;
     const before = this.snapshot();
     const order = compute(P.page, P.layout).panels.map(g => g.id);
-    const layout = make(() => ({ t: "leaf", id: "p" + (P.nextId++) }));
+    const layout = ensureCutIds(make(() => ({ t: "leaf", id: "p" + (P.nextId++) })));
     const fresh = compute(P.page, layout).panels.map(g => g.id);
     const panels = {};
     fresh.forEach((id, i) => {        // les videos et images suivent l'ordre de lecture
       const old = order[i] ? P.panels[order[i]] : null;
       panels[id] = old ? Object.assign({}, old) : NEW_PANEL();
     });
-    P.layout = layout; P.panels = panels;
-    this.selected = null;
+    if (Object.keys(P.anim.tracks || {}).length) toast("Nouveau découpage : l'animation du cadrage est retirée (Ctrl+Z pour revenir).");
+    P.layout = layout; P.panels = panels; P.anim = { tracks: {} };
+    this.selected = null; this.selectedCut = null;
     this.pushUndo(before);
+    this.timeline?.render();
     this.editor.render(); this.renderLeft(); this.refreshInspector();
     this.save(); this.pageSoon();
   }
@@ -649,12 +669,13 @@ class App {
   // ---------------------------------------------------------------- historique et enregistrement
   snapshot() {
     const P = this.project;
-    return JSON.stringify({ page: P.page, layout: P.layout, panels: P.panels, nextId: P.nextId, pageSound: P.pageSound });
+    return JSON.stringify({ page: P.page, layout: P.layout, panels: P.panels, nextId: P.nextId, pageSound: P.pageSound, anim: P.anim });
   }
   pushUndo(snap) { this.undo.push(snap); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   restore(snap) {
     Object.assign(this.project, JSON.parse(snap));
     if (this.selected && !this.project.panels[this.selected]) this.selected = null;
+    this.timeline?.render();
     this.editor.render(); this.renderLeft(); this.refreshInspector(); this.save(); this.pageSoon();
   }
   doUndo() { if (this.undo.length) { this.redo.push(this.snapshot()); this.restore(this.undo.pop()); } }
@@ -669,8 +690,14 @@ class App {
     if (kind !== "panel") this.pageSoon();
   }
 
+  // la page finie : le decoupage a la fin de l'animation du cadrage (le decoupage tout court s'il n'y en a pas)
+  finalGeom() {
+    const P = this.project;
+    return compute(P.page, layoutAt(P.layout, P.anim, animEnd(P.anim)));
+  }
+
   geometryForSave() {
-    const g = compute(this.project.page, this.project.layout);
+    const g = this.finalGeom();
     return { size: [this.project.page.width, this.project.page.height],
              panels: g.panels.map(p => ({ id: p.id, order: p.order, rect: [p.bbox.x0, p.bbox.y0, p.bbox.x1, p.bbox.y1].map(v => Math.round(v * 10) / 10),
                                           poly: p.poly.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]) })) };
@@ -678,6 +705,7 @@ class App {
 
   async save(first) {
     if (!this.project) return;
+    this.cleanAnim();
     this.project.geometry = this.geometryForSave();
     if (!this._last) this._last = this.snapshot();
     const sig = this.snapshot();
@@ -715,7 +743,7 @@ class App {
   async uploadPage(strict) {
     if (!this.project) return;
     const sig = this.pageSig();
-    try { await pageImages(this.project, this.editor.geom); this._pageSig = sig; }
+    try { await pageImages(this.project, this.finalGeom()); this._pageSig = sig; }
     catch (e) { if (strict) throw e; console.warn(e); }
   }
 
@@ -725,7 +753,8 @@ class App {
     try {
       const r = await get(`projects/${this.project.id}/rev`);
       if (this._rev == null) { this._rev = r.rev; return; }
-      if (r.rev > this._rev && this.snapshot() === this._savedSig && !document.querySelector(".popover, .modal-back, .veil")) {
+      if (r.rev > this._rev && this.snapshot() === this._savedSig && !this.animPlaying && !this.editor?.drag
+          && !document.querySelector(".popover, .modal-back, .veil")) {
         this._reloading = true;
         const keep = this.selected;
         await this.open(this.project.id);
@@ -753,7 +782,7 @@ class App {
   // ---------------------------------------------------------------- apercu, export, publication
   pageSig() {
     const P = this.project;
-    return JSON.stringify({ page: P.page, layout: P.layout,
+    return JSON.stringify({ page: P.page, layout: P.layout, anim: P.anim,
                             imgs: Object.fromEntries(Object.entries(P.panels).map(([k, v]) => [k, [media(v)?.url, v.view]])) });
   }
 
@@ -924,13 +953,164 @@ class App {
   }
 
   keys(e) {
-    if (!this.project || e.target.closest("input, textarea, select")) return;
+    const tgt = e.target instanceof Element ? e.target : document.body;
+    if (!this.project || tgt.closest("input, textarea, select")) return;
+    if (this.animMode && e.code === "Space") { e.preventDefault(); this.animToggle(); return; }
+    if (this.animMode && (e.key === "Delete" || e.key === "Backspace") && this.timeline?.sel) { e.preventDefault(); this.timeline.deleteKey(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.doRedo() : this.doUndo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); this.doRedo(); }
     else if (e.key === "Delete" && this.selected) this.deleteSelected();
     else if (e.key === "Escape") { document.querySelectorAll(".popover").forEach(p => p.remove()); this.select(null); }
   }
 }
+
+// ================================================================ Animate framing (cadrage anime)
+Object.assign(App.prototype, {
+  // le decoupage montre dans l'editeur : a la tete de lecture en mode animation, sinon la page finie
+  viewLayout() {
+    const P = this.project;
+    return layoutAt(P.layout, P.anim, this.animMode ? this.animT : animEnd(P.anim));
+  },
+
+  // duree de la page (meme regle que app/videoexport.py auto_duration)
+  pageSeconds() {
+    const P = this.project, ex = P.export || {};
+    if (ex.duration) return ex.duration;
+    let d = 0;
+    for (const pn of Object.values(P.panels || {})) {
+      const v = pn.video, e = pn.edit || {};
+      if (!v || !v.frames) continue;
+      const n = v.frames, r = Array.isArray(e.range) ? e.range : [0, n - 1];
+      const a = Math.max(0, Math.min(n - 1, r[0] | 0)), b = Math.max(a, Math.min(n - 1, r[1] | 0));
+      d = Math.max(d, (b - a + 1) / (v.fps_f || 25) / (e.speed || 1));
+    }
+    if (d <= 0.2) d = 5;
+    const end = animEnd(P.anim);
+    if (end > 0 && end + 1 > d) d = end + 1;
+    return Math.min(600, d);
+  },
+
+  timelineLength() { return Math.max(1, this.pageSeconds(), animEnd(this.project.anim) + 0.5); },
+
+  // les cles tombent sur les images de la video exportee
+  snap(t) { const fps = (this.project.export || {}).fps || 30; return Math.round(t * fps) / fps; },
+
+  setAnimMode(on) {
+    this.animMode = !!on;
+    this.animPlaying = false;
+    if (on) {
+      if (!this.timeline) this.timeline = new Timeline(this, this.tlHost);
+      this.tlHost.hidden = false;
+    } else {
+      this.timeline?.destroy();
+      this.timeline = null;
+      this.tlHost.hidden = true;
+      this.selectedCut = null;
+    }
+    document.body.classList.toggle("anim-on", this.animMode);
+    this.animBtn?.classList.toggle("on", this.animMode);
+    this.editor.render();
+  },
+
+  animSeek(t, live) {
+    this.animT = Math.max(0, Math.min(this.timelineLength(), t));
+    this.editor.render(live);
+    this.timeline?.update();
+  },
+
+  animToggle() {
+    this.animPlaying = !this.animPlaying;
+    this.editor.wrap.classList.toggle("playing", this.animPlaying);
+    if (!this.animPlaying) { this.editor.render(); this.timeline?.update(); return; }
+    let last = performance.now();
+    const step = (now) => {
+      if (!this.animPlaying || !this.animMode || !this.project) {
+        this.animPlaying = false;
+        this.editor?.wrap.classList.remove("playing");
+        if (this.project) { this.editor.render(); this.timeline?.update(); }
+        return;
+      }
+      this.animT = (this.animT + (now - last) / 1000) % this.timelineLength();
+      last = now;
+      this.editor.render(true);
+      this.timeline?.update();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  },
+
+  // une attache touchee dans la planche : la timeline se met sur sa ligne
+  touchCut(id, mode) {
+    this.selectedCut = id;
+    if (this.timeline) this.timeline.selectCut(id, mode);
+  },
+
+  cutAnimated(id) {
+    const T = (this.project.anim && this.project.anim.tracks) || {};
+    return !!((T[id + ".a"] || []).length || (T[id + ".b"] || []).length);
+  },
+
+  // pose (ou met a jour) une cle ; une cle par image de la video exportee
+  setKey(track, t, v) {
+    const T = this.project.anim.tracks, keys = T[track] = T[track] || [];
+    const fps = (this.project.export || {}).fps || 30;
+    const k = keys.find(x => Math.abs(x.t - t) < 0.5 / fps);
+    if (k) k.v = v;
+    else { keys.push({ t, v, e: "ease" }); keys.sort((a, b) => a.t - b.t); }
+  },
+
+  // glisser une attache en mode animation : cle(s) a la tete de lecture ; la premiere cle d'une piste en ajoute une
+  // a 0 s avec la position de depart (le trait part de la ou il etait)
+  keyCut(d, a, b) {
+    const P = this.project;
+    P.anim.tracks = JSON.parse(JSON.stringify(d.keys0));
+    const t = this.snap(this.animT);
+    const ends = d.mode === "move" ? ["a", "b"] : d.mode === "end0" ? ["a"] : ["b"];
+    for (const end of ends) {
+      const track = `${d.id}.${end}`, start = end === "a" ? d.a : d.b;
+      if (!(P.anim.tracks[track] || []).length && t > 1e-6) this.setKey(track, 0, start);
+      this.setKey(track, t, end === "a" ? a : b);
+    }
+  },
+
+  // glisser un trait anime hors du mode animation : toute son animation se decale d'autant
+  shiftCut(d, a, b) {
+    const P = this.project;
+    P.anim.tracks = JSON.parse(JSON.stringify(d.keys0));
+    const node = this.nodeOfCut(d.id);
+    const ends = d.mode === "move" ? ["a", "b"] : d.mode === "end0" ? ["a"] : ["b"];
+    for (const end of ends) {
+      const delta = end === "a" ? a - d.a : b - d.b, keys = P.anim.tracks[`${d.id}.${end}`];
+      if (keys && keys.length) for (const k of keys) k.v = Math.max(0, Math.min(1, k.v + delta));
+      else if (node) node[end] = Math.max(0.04, Math.min(0.96, node[end] + delta));
+    }
+  },
+
+  nodeOfCut(id) {
+    let found = null;
+    (function walk(x) { if (!x || x.t !== "split" || found) return; if (x.id === id) found = x; walk(x.c[0]); walk(x.c[1]); })(this.project.layout);
+    return found;
+  },
+
+  // pistes des traits disparus (case supprimee, nouveau decoupage) retirees
+  cleanAnim() {
+    const P = this.project;
+    if (!P.anim || !P.anim.tracks) { P.anim = { tracks: {} }; return; }
+    const ids = new Set(cutIdsOf(P.layout));
+    for (const k of Object.keys(P.anim.tracks)) {
+      if (!ids.has(k.split(".")[0]) || !(P.anim.tracks[k] || []).length) delete P.anim.tracks[k];
+    }
+  },
+
+  animChanged() {
+    this.cleanAnim();
+    this.timeline?.render();
+    this.editor.render();
+    this.commit("anim");
+  },
+
+  toast(msg, kind, ms) { toast(msg, kind, ms); },
+});
 
 function section(title, ico, body) {
   return h("section.insp", h("h4", ico ? icon(ico) : null, " ", title), body);

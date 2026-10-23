@@ -50,10 +50,14 @@ Mac (`~/Alive-Video/projects`).
      N&B · sépia · teinte, vignette, grain, halation, aberration chromatique — chacun avec ses réglages, empilés dans
      l'ordre voulu, coupables sans être retirés ; piles enregistrables en préréglages, copiables sur toute la page ;
    - **Son** : volume de la vidéo, sons ajoutés, musique de la page.
-7. **Exporter la vidéo** : durée (automatique = le plus long passage, ou au choix), résolution (480p à 4K), images par
+7. **🎞 Animate framing** (barre du haut) : le découpage s'anime. Une timeline s'ouvre sous la planche, une ligne par
+   point d'attache des traits ; toucher une attache met la timeline sur sa ligne, la glisser pose une image clé à
+   l'instant de la tête de lecture. Clés déplaçables, courbes (douce, linéaire, accélère, ralentit, palier), suppression.
+   L'aperçu et la vidéo exportée suivent.
+8. **Exporter la vidéo** : durée (automatique = le plus long passage, ou au choix), résolution (480p à 4K), images par
    seconde (24 à 60). Le fichier arrive dans `projects/<planche>/video/`. Les effets y sont calculés exactement comme dans
    l'aperçu.
-8. **Livres et publication** : comme Alive-Comics (livres de plusieurs planches, projets de rangement, publication par
+9. **Livres et publication** : comme Alive-Comics (livres de plusieurs planches, projets de rangement, publication par
    SSH une fois réglée dans ⚙ Réglages).
 
 Documentation complète : `docs/ALIVE-VIDEO-DOC.html`.
