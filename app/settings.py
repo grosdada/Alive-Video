@@ -1,4 +1,5 @@
-"""Reglages propres au poste : local_settings.json a la racine du depot (jamais versionne).
+"""Reglages propres au poste : local_settings.json dans le dossier des donnees (paths.HOME : le depot par defaut,
+jamais versionne).
 
 Aucune cle d'IA ni de service de calcul : Alive-Video ne genere rien. Restent le serveur (port 8792, a cote
 d'Alive-Comics sur 8790) et la publication SSH.
@@ -7,10 +8,10 @@ d'Alive-Comics sur 8790) et la publication SSH.
 import copy
 import json
 import threading
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-FILE = ROOT / "local_settings.json"
+from .paths import HOME
+
+FILE = HOME / "local_settings.json"
 _lock = threading.Lock()
 
 DEFAULTS = {
@@ -38,6 +39,7 @@ def load():
 
 def save(data):
     with _lock:
+        FILE.parent.mkdir(parents=True, exist_ok=True)
         FILE.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
 
 

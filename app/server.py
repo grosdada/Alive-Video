@@ -24,12 +24,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import assemble, compose, edit, effects, geometry, media, publish, settings, sounds, store, videoexport
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import CODE as ROOT, DATA
+
 WEB = ROOT / "app" / "web"
 PLAYER = ROOT / "player"
-BOOKS = ROOT / "data" / "books.json"
-FOLDERS = ROOT / "data" / "folders.json"      # projets de rangement : {"folders": [{id, name, color}], "assign": {planche: projet}}
-UPLOADS = ROOT / "data" / "uploads"           # gros envois (videos) : ecrits sur le disque au fil de l'eau
+BOOKS = DATA / "books.json"
+FOLDERS = DATA / "folders.json"      # projets de rangement : {"folders": [{id, name, color}], "assign": {planche: projet}}
+UPLOADS = DATA / "uploads"           # gros envois (videos) : ecrits sur le disque au fil de l'eau
 SPOOL = 16 * 1024 * 1024
 ACCENT = "#b36bff"
 VERSION = "0.1.0"
@@ -547,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
             book = next((b for b in books if b["id"] == parts[1]), None)
             if not book or not book.get("pages"):
                 raise ApiError("livre vide ou introuvable", 404)
-            out = assemble.build_book(book, ROOT / "data" / "books" / book["id"])
+            out = assemble.build_book(book, DATA / "books" / book["id"])
             if parts[2] == "export":
                 return self.send_json({"ok": True, "url": f"/api/books/{book['id']}/file/index.html"})
             name = store.slug(book.get("slug") or book["title"])
@@ -556,10 +557,10 @@ class Handler(BaseHTTPRequestHandler):
             res = publish.publish_folder(out, name, book["title"], len(book["pages"]), cover)
             return self.send_json(res)
         if len(parts) == 3 and parts[2] == "reveal" and m == "POST":
-            open_folder(self.inside(ROOT / "data" / "books", parts[1]))
+            open_folder(self.inside(DATA / "books", parts[1]))
             return self.send_json({"ok": True})
         if len(parts) >= 4 and parts[2] == "file" and m in ("GET", "HEAD"):
-            return self.send_file(self.inside(ROOT / "data" / "books" / parts[1], "/".join(parts[3:])))
+            return self.send_file(self.inside(DATA / "books" / parts[1], "/".join(parts[3:])))
         raise ApiError("route livre inconnue", 404)
 
 
@@ -588,7 +589,7 @@ def _console_safe():
                 k.SetConsoleMode(h, (mode.value & ~0x0040) | 0x0080)   # sans QuickEdit, avec ENABLE_EXTENDED_FLAGS
         except (OSError, AttributeError):
             pass
-    log = ROOT / "data" / "server.log"
+    log = DATA / "server.log"
     log.parent.mkdir(exist_ok=True)
     if log.exists() and log.stat().st_size > 5_000_000:
         log.replace(log.with_suffix(".old.log"))

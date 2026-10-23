@@ -18,7 +18,7 @@ import time
 from . import store
 
 AUDIO = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus", ".aif", ".aiff"}
-INDEX = store.ROOT / "data" / "sound_index.json"
+INDEX = store.ROOT / "data" / "sound_index.json"       # store.ROOT = dossier des donnees (paths.HOME)
 _lock = threading.Lock()
 LABELS = {"audio": "son 1", "voice": "son 2 / voix off", "foley": "bruitages"}
 

@@ -24,7 +24,8 @@ from . import edit as E
 from . import geometry as G
 from . import media, store, videoexport
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import CODE as ROOT, DATA
+
 PLAYER = ROOT / "player"
 PLAYER_FILES = ("alive-player.js", "alive-player.css", "grain.png")
 NOFLASH = media.NOFLASH
@@ -233,7 +234,7 @@ def data_files(data):
 
 def sync_book_page(book, pid):
     """Reporte une planche retouchee dans le livre deja assemble (data/books/<id>), sans tout reconstruire."""
-    out = ROOT / "data" / "books" / book["id"]
+    out = DATA / "books" / book["id"]
     bj = out / "book.js"
     if not bj.exists():
         return None

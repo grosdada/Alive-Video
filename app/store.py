@@ -18,8 +18,10 @@ import time
 import unicodedata
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-PROJECTS = ROOT / "projects"
+from .paths import HOME
+
+ROOT = HOME
+PROJECTS = HOME / "projects"
 TRASH = PROJECTS / "_corbeille"
 _lock = threading.RLock()
 

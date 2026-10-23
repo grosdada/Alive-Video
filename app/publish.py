@@ -19,8 +19,9 @@ from pathlib import Path
 
 from . import settings
 
-ROOT = Path(__file__).resolve().parent.parent
-REGISTRY = ROOT / "data" / "published.json"
+from .paths import CODE as ROOT, DATA
+
+REGISTRY = DATA / "published.json"
 NOFLASH = {"creationflags": 0x08000000} if os.name == "nt" else {}
 HTACCESS = """# Alive-Video : pas d'indexation, types et cache des medias
 Header set X-Robots-Tag "noindex, nofollow"
@@ -137,7 +138,7 @@ def publish_folder(folder, name, title, pages, cover, log=print):
     reg[name] = {"title": title, "pages": pages, "cover": cover, "published": time.time()}
     REGISTRY.parent.mkdir(exist_ok=True)
     REGISTRY.write_text(json.dumps(reg, indent=1, ensure_ascii=False), encoding="utf-8")
-    root = ROOT / "data" / "_racine"
+    root = DATA / "_racine"
     root.mkdir(parents=True, exist_ok=True)
     (root / "index.html").write_text(shelf_html(reg), encoding="utf-8")
     (root / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")

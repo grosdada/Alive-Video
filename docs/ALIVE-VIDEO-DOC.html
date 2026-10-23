@@ -157,6 +157,10 @@ pip install -r requirements.txt        # pillow, numpy, opencv-python-headless</
       « Alive Video » sur le Bureau, qui lance <code>Lancer_Alive_Video.command</code> (mise à jour <code>git pull</code> au
       lancement si le Mac est en ligne). Relancer la même ligne met à jour. Rien n'est téléchargé par le navigateur : pas de
       blocage Gatekeeper.</p></div></li>
+    <li><b>Application Mac (DMG)</b><div><p>Les données peuvent vivre hors du code : variable <code>ALIVE_HOME</code>
+      (<code>app/paths.py</code>) pour <code>projects/</code>, <code>data/</code> et <code>local_settings.json</code> ; le code
+      (<code>app/</code>, <code>player/</code>) reste en lecture seule. Consigne de fabrication d'un « Alive Video.app » autonome
+      en DMG pour Claude sur Mac : <code>mac/BRIEF-DMG.md</code>.</p></div></li>
     <li><b>Ou sans rien installer</b><div><p>Ouvrir l'application d'un autre poste, par le réseau : sur le PC qui la fait
       tourner, <code>"server": {"host": "0.0.0.0"}</code> dans <code>local_settings.json</code> et le port 8792 ouvert dans le
       pare-feu ; puis <code>http://&lt;adresse du PC&gt;:8792</code> (à la maison, ou par Tailscale). Les planches restent sur

@@ -12,12 +12,12 @@ et le volume de la musique de la page.
 
 import json
 import time
-from pathlib import Path
 
 from . import effects, store
+from .paths import DATA
 
 GRADE = {"sat": (0, 3, 1), "bright": (0.3, 2, 1), "contrast": (0.3, 2, 1), "temp": (-1, 1, 0), "hue": (-180, 180, 0)}
-USER_PRESETS = Path(__file__).resolve().parent.parent / "data" / "user_presets.json"
+USER_PRESETS = DATA / "user_presets.json"
 SPEED = (0.25, 4)
 
 
