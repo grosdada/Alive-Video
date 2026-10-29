@@ -1,0 +1,990 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animate framing pour Alive-Comics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,800;125,900&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Cahier de portage : la fonction « Animate framing » d'Alive-Video, a reprendre dans Alive-Comics.
+   Meme charte que les documentations des deux applications, accent jaune d'Alive-Comics. */
+:root {
+  --bg: #f3f2ef; --panel: #ffffff; --ink: #18160f; --muted: #686258; --line: #d9d5cc; --stroke: #18160f;
+  --accent: #a3620e; --accent-soft: #f2b45c; --code: #efece6; --purple: #7a35d6;
+  --ok: #2f8f4e; --todo: #c97f12; --redo: #c8382e;
+  --display: "Archivo", "Arial Black", "Helvetica Neue", sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121212; --panel: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --line: #2e2e2e; --stroke: #000000;
+    --accent: #f2b45c; --accent-soft: #f2b45c; --code: #232120; --purple: #b36bff;
+    --ok: #45b56a; --todo: #f2a33c; --redo: #e0483e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121212; --panel: #1b1b1b; --ink: #ece8e1; --muted: #9a948a; --line: #2e2e2e; --stroke: #000000;
+  --accent: #f2b45c; --accent-soft: #f2b45c; --code: #232120; --purple: #b36bff;
+  --ok: #45b56a; --todo: #f2a33c; --redo: #e0483e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 17px/1.58 var(--body); margin: 0; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 72px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-weight: 900; font-stretch: 125%; font-size: clamp(32px, 5.6vw, 58px); line-height: 1; text-transform: uppercase; }
+h2 { font-weight: 800; font-stretch: 112%; font-size: clamp(22px, 3vw, 30px); line-height: 1.1; text-transform: uppercase; }
+h3 { font-weight: 800; font-stretch: 112%; font-size: 16px; letter-spacing: .02em; text-transform: uppercase; margin-top: 6px; }
+p { margin: 0; max-width: 72ch; }
+a { color: var(--accent); }
+.eyebrow { font: 600 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: clamp(18px, 2vw, 20px); line-height: 1.5; max-width: 66ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: .84em; background: var(--code); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+pre { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; overflow-x: auto;
+      font: 13px/1.55 var(--mono); max-width: 100%; }
+pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+kbd { font: 600 12px/1 var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: var(--panel); white-space: nowrap; }
+header.hero { display: grid; gap: 18px; padding-block: 12px 22px; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px 28px; font-variant-numeric: tabular-nums; }
+.stat b { display: block; font: 900 28px/1 var(--display); font-stretch: 125%; }
+.stat span { font-size: 13px; color: var(--muted); }
+nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px 18px; }
+nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2 260px; column-gap: 32px; }
+nav.toc li { margin: 2px 0; break-inside: avoid; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover { color: var(--accent); }
+section { padding-block: 30px 4px; border-top: 3px solid var(--stroke); margin-top: 32px; display: grid; gap: 14px; min-width: 0; }
+.sec-head { display: grid; gap: 6px; }
+ul, ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+li { max-width: 72ch; }
+li::marker { color: var(--accent); }
+.steps { list-style: none; padding: 0; counter-reset: s; display: grid; gap: 10px; }
+.steps > li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 10px; max-width: none;
+              background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
+.steps > li::before { content: counter(s); font: 900 24px/1 var(--display); font-stretch: 125%; color: var(--accent); grid-row: span 2; }
+.steps > li > b { font-size: 16px; }
+.steps > li > div { min-width: 0; display: grid; gap: 6px; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 11.5px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px 28px; }
+.block { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.note { border-left: 4px solid var(--accent); padding: 10px 14px; background: var(--panel); border-radius: 0 4px 4px 0; display: grid; gap: 6px; }
+.warn { border-left: 4px solid var(--redo); padding: 10px 14px; background: var(--panel); border-radius: 0 4px 4px 0; display: grid; gap: 6px; }
+.rule { border: 2px solid var(--accent); padding: 12px 16px; background: var(--panel); border-radius: 4px; display: grid; gap: 6px; }
+.tag { font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; white-space: nowrap; }
+.tag.must { background: color-mix(in srgb, var(--redo) 18%, transparent); color: var(--redo); }
+.tag.should { background: color-mix(in srgb, var(--todo) 20%, transparent); color: var(--todo); }
+.tag.opt { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 680px; height: auto; }
+.diagram text { font-family: var(--body); fill: var(--ink); font-size: 14px; }
+.diagram .q { fill: var(--muted); font-size: 12px; }
+.diagram .bx { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+.diagram .hot { fill: color-mix(in srgb, var(--accent-soft) 22%, transparent); stroke: var(--accent); stroke-width: 2; }
+.diagram .ln { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.diagram .ah { fill: var(--muted); }
+.diagram .cut { stroke: var(--ink); stroke-width: 5; }
+.diagram .end { fill: var(--purple); stroke: var(--panel); stroke-width: 2; }
+.diagram .key { fill: var(--purple); }
+.checks { list-style: none; padding: 0; display: grid; gap: 6px; }
+.checks li { padding-left: 28px; position: relative; max-width: none; }
+.checks li::before { content: ""; position: absolute; left: 2px; top: 5px; width: 14px; height: 14px; border: 2px solid var(--accent); border-radius: 3px; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); display: grid; gap: 6px; }
+@media (max-width: 560px) { body { font-size: 16px; } td:first-child { white-space: normal; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">Cahier de portage · d'Alive-Video vers Alive-Comics · 29 octobre 2026</p>
+  <h1>Animate framing,<br>les cases qui bougent</h1>
+  <p class="lead">Dans Alive-Video, le découpage d'une planche s'anime : un trait glisse, une case s'ouvre, une autre se
+    dédouble, la gouttière s'élargit, le fond change de couleur. On pose des images clés sur une timeline, comme dans un
+    logiciel de montage. Ce document explique tout ce qu'il faut pour reprendre la fonction dans Alive-Comics : ce que voit
+    l'utilisateur, les données, le calcul, l'éditeur, la timeline, le lecteur, le serveur, deux corrections à faire d'abord,
+    l'ordre de travail et la recette.</p>
+  <div class="stats">
+    <div class="stat"><b>1</b><span>calcul, recopié à l'identique en 3 endroits</span></div>
+    <div class="stat"><b>6 + 2n</b><span>lignes de timeline : style de page + 2 bouts par trait</span></div>
+    <div class="stat"><b>8</b><span>courbes, de l'ease in-out au palier</span></div>
+    <div class="stat"><b>0</b><span>changement pour les planches sans animation</span></div>
+  </div>
+  <nav class="toc" aria-label="Sommaire">
+    <p class="eyebrow">Sommaire</p>
+    <ol>
+      <li><a href="#bref">En deux minutes</a></li>
+      <li><a href="#usage">Ce que voit l'utilisateur</a></li>
+      <li><a href="#donnees">Les données</a></li>
+      <li><a href="#calcul">Le calcul (trois copies identiques)</a></li>
+      <li><a href="#editeur">L'éditeur de planche</a></li>
+      <li><a href="#timeline">La timeline</a></li>
+      <li><a href="#annuler">Annuler, refaire, recharger : deux bugs à corriger d'abord</a></li>
+      <li><a href="#lecteur">Le lecteur d'Alive-Comics</a></li>
+      <li><a href="#serveur">Serveur et assemblage</a></li>
+      <li><a href="#bulles">Les bulles d'une case qui bouge</a></li>
+      <li><a href="#ordre">Ordre de travail</a></li>
+      <li><a href="#recette">Recette</a></li>
+      <li><a href="#code">Où lire le code d'Alive-Video</a></li>
+    </ol>
+  </nav>
+</header>
+
+<!-- ============================================================ 1 -->
+<section id="bref">
+  <div class="sec-head"><p class="eyebrow">1 · Résumé</p><h2>En deux minutes</h2></div>
+  <p>Le découpage d'Alive-Comics est un arbre : chaque nœud <code>split</code> coupe un rectangle en deux par un trait
+    (horizontal <code>h</code> ou vertical <code>v</code>), dont les deux bouts sont placés par <code>a</code> et
+    <code>b</code> (0 à 1). Animer le cadrage, c'est donner à <code>a</code> et <code>b</code> des valeurs qui
+    changent dans le temps, par images clés, puis recalculer les cases à chaque instant avec le même
+    <code>compute()</code> qu'aujourd'hui. Le style de la page (fond, couleur des cases, traits, gouttière, marge)
+    s'anime de la même façon.</p>
+  <div class="diagram" role="img" aria-label="Chaîne de calcul : les pistes d'images clés et le découpage donnent le découpage et la page à l'instant t, puis compute donne les cases, utilisées par l'éditeur, le lecteur et le serveur">
+    <svg viewBox="0 0 940 210">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
+      <rect class="bx" x="10" y="20" width="180" height="62" rx="4"/><text x="100" y="46" text-anchor="middle">project.layout</text><text class="q" x="100" y="66" text-anchor="middle">arbre, traits c1, c2…</text>
+      <rect class="bx" x="10" y="118" width="180" height="62" rx="4"/><text x="100" y="144" text-anchor="middle">project.anim.tracks</text><text class="q" x="100" y="164" text-anchor="middle">"c2.a": [{t, v, e}]…</text>
+      <rect class="hot" x="250" y="20" width="200" height="62" rx="4"/><text x="350" y="46" text-anchor="middle">layoutAt(layout, anim, t)</text><text class="q" x="350" y="66" text-anchor="middle">a, b interpolés</text>
+      <rect class="hot" x="250" y="118" width="200" height="62" rx="4"/><text x="350" y="144" text-anchor="middle">pageAt(page, anim, t)</text><text class="q" x="350" y="164" text-anchor="middle">couleurs, traits, marges</text>
+      <rect class="bx" x="510" y="69" width="150" height="62" rx="4"/><text x="585" y="95" text-anchor="middle">compute()</text><text class="q" x="585" y="115" text-anchor="middle">polygones des cases</text>
+      <rect class="bx" x="720" y="10" width="210" height="50" rx="4"/><text x="825" y="40" text-anchor="middle">éditeur (tête de lecture)</text>
+      <rect class="bx" x="720" y="75" width="210" height="50" rx="4"/><text x="825" y="105" text-anchor="middle">lecteur (horloge de page)</text>
+      <rect class="bx" x="720" y="140" width="210" height="50" rx="4"/><text x="825" y="170" text-anchor="middle">serveur (page finie, vignette)</text>
+      <path class="ln" d="M190 51H250" marker-end="url(#ar)"/><path class="ln" d="M190 149H250" marker-end="url(#ar)"/>
+      <path class="ln" d="M190 70L250 140" marker-end="url(#ar)"/>
+      <path class="ln" d="M450 51L510 92" marker-end="url(#ar)"/><path class="ln" d="M450 149L510 110" marker-end="url(#ar)"/>
+      <path class="ln" d="M660 92L720 40" marker-end="url(#ar)"/><path class="ln" d="M660 100H720" marker-end="url(#ar)"/><path class="ln" d="M660 108L720 160" marker-end="url(#ar)"/>
+    </svg>
+  </div>
+  <div class="grid2">
+    <div class="block">
+      <h3>À livrer dans Alive-Comics</h3>
+      <ul>
+        <li>Identifiants de traits et pistes d'images clés dans la planche (<code>project.anim</code>).</li>
+        <li>Le calcul (courbes, interpolation, découpage et page à l'instant t), en JS (éditeur et lecteur) et en Python
+          (serveur).</li>
+        <li>Deux modes dans l'éditeur de planche : <b>✏️ Edit</b> et <b>🎞 Animate framing</b>.</li>
+        <li>La timeline, avec ses bases de logiciel de montage.</li>
+        <li>Le lecteur : une horloge de page, les cases qui suivent l'animation, le fond et les traits redessinés.</li>
+        <li>L'assemblage de la page jouable et des livres.</li>
+      </ul>
+    </div>
+    <div class="block">
+      <h3>Référence</h3>
+      <ul>
+        <li>Code : <a href="https://github.com/grosdada/Alive-Video">github.com/grosdada/Alive-Video</a>, branche
+          <code>main</code>, ou sur le PC de David <code>E:\Codex projects\Alive-Video</code>.</li>
+        <li>Commits : <code>a270592</code> (Animate framing), <code>a9ee230</code> (mode Edit, style de page),
+          <code>fd53429</code> (timeline, courbes, vidéos en repère), <code>b2659f9</code> (annuler / refaire),
+          <code>d38b26c</code> et <code>54fd17f</code> (corrections Mac).</li>
+        <li>Alive-Video est née d'une copie d'Alive-Comics (<code>21c6c4a</code>) : <code>geometry.js</code>,
+          <code>editor.js</code>, <code>main.js</code> sont encore très proches, on peut souvent recopier.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="rule">
+    <b>La règle d'or</b>
+    <p>Le calcul existe trois fois : <code>app/web/js/geometry.js</code> (éditeur), <code>player/alive-player.js</code>
+      (lecteur) et <code>app/geometry.py</code> (serveur). Les trois doivent donner exactement les mêmes cases au même
+      instant. On ne modifie jamais l'un sans les deux autres. À écrire dans <code>CLAUDE.md</code> d'Alive-Comics.</p>
+  </div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="usage">
+  <div class="sec-head"><p class="eyebrow">2 · Côté utilisateur</p><h2>Ce que voit l'utilisateur</h2></div>
+  <h3>Deux modes dans la barre du haut de l'éditeur de planche</h3>
+  <div class="tbl"><table>
+    <tr><th>Mode</th><th>Ce qui change</th></tr>
+    <tr><td><b>✏️ Edit</b></td><td>Les icônes de chaque case (numéro, média, filtres, sons, bulles…) apparaissent. Hors de ce
+      mode, la planche est nette : aucune icône. Choix retenu par le navigateur (préférence locale).</td></tr>
+    <tr><td><b>🎞 Animate framing</b></td><td>Une timeline s'ouvre sous la planche ; les icônes des cases sont cachées
+      (jamais d'icônes pendant l'animation) ; les poignées des traits passent en mode « clé » ; la planche montre le
+      découpage et le style à l'instant de la tête de lecture.</td></tr>
+    <tr><td>Aucun des deux</td><td>La planche finie, nette (fin de l'animation).</td></tr>
+  </table></div>
+  <p>Les deux boutons sont exclusifs : allumer l'un éteint l'autre. Dans Alive-Video, l'ancien bouton « ✏️ Éditer » de
+    l'aperçu a été renommé « 🎚 Retouches » pour éviter la confusion ; à faire de même si Alive-Comics a un bouton de ce
+    nom.</p>
+  <h3>Dans la planche, en Animate framing</h3>
+  <ul>
+    <li><b>Toucher une attache</b> (le bout d'un trait) met la timeline sur sa ligne ; la poignée du milieu choisit les
+      deux lignes du trait. Le trait choisi passe en évidence.</li>
+    <li><b>Glisser une attache</b> pose une clé à l'instant de la tête de lecture. La première clé d'une ligne en pose
+      aussi une à 0 s avec la position de départ : le trait part de là où il était.</li>
+    <li>Une case peut se refermer entièrement (trait collé au bord) : elle disparaît à ces instants, puis revient.</li>
+    <li>Les attaches qui ont des clés sont colorées (accent).</li>
+    <li>Les vidéos des cases suivent la tête de lecture, pour avoir des repères quand on pose les clés (§ 5, optionnel au
+      début).</li>
+  </ul>
+  <h3>Hors du mode</h3>
+  <ul>
+    <li>La planche montre la page finie (le découpage à la dernière clé).</li>
+    <li>Glisser un trait animé décale toute son animation d'autant (toutes ses clés bougent ensemble).</li>
+    <li>Un nouveau découpage (préréglage, variante au hasard) retire l'animation ; Ctrl+Z la rend.</li>
+    <li>Les réglages de page animés (fond, couleur des cases, traits, épaisseur, gouttière, marge) portent un badge
+      « 🎞 animé » et sont grisés dans l'inspecteur : ils se règlent dans la timeline.</li>
+  </ul>
+  <h3>Dans le lecteur (aperçu, page publiée, livre)</h3>
+  <p>Le découpage s'anime tout seul quand la page s'affiche, avec les mêmes courbes que dans l'éditeur. Les vidéos des
+    cases continuent de jouer comme aujourd'hui (au survol, ou toujours) ; elles suivent simplement leur case.</p>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="donnees">
+  <div class="sec-head"><p class="eyebrow">3 · Modèle</p><h2>Les données</h2></div>
+  <div class="diagram" role="img" aria-label="Un trait c2 vertical avec ses deux bouts a et b, et ses deux lignes de timeline avec des losanges">
+    <svg viewBox="0 0 940 230">
+      <rect class="bx" x="20" y="20" width="220" height="190" rx="2"/>
+      <line class="cut" x1="20" y1="90" x2="240" y2="76"/>
+      <line class="cut" x1="118" y1="83" x2="146" y2="210"/>
+      <circle class="end" cx="118" cy="83" r="8"/><circle class="end" cx="146" cy="210" r="8"/>
+      <text x="96" y="110" class="q">a</text><text x="156" y="200" class="q">b</text>
+      <text x="44" y="60" class="q">c1 (h)</text><text x="166" y="150" class="q">c2 (v)</text>
+      <text x="290" y="40">Trait c2 : nœud {"t": "split", "id": "c2", "dir": "v", "a": 0.45, "b": 0.58, "c": [...]}</text>
+      <text class="q" x="290" y="62">a = bout haut (ou gauche pour un trait h), b = bout bas (ou droit) ; 0 à 1 dans le rectangle du nœud</text>
+      <line class="ln" x1="290" y1="110" x2="920" y2="110"/><text x="290" y="100" class="q">ligne « c2.a »</text>
+      <line class="ln" x1="290" y1="170" x2="920" y2="170"/><text x="290" y="160" class="q">ligne « c2.b »</text>
+      <rect class="key" x="384" y="103" width="14" height="14" transform="rotate(45 391 110)"/>
+      <rect class="key" x="604" y="103" width="14" height="14" transform="rotate(45 611 110)"/>
+      <rect class="key" x="384" y="163" width="14" height="14" transform="rotate(45 391 170)"/>
+      <rect class="key" x="784" y="163" width="14" height="14" transform="rotate(45 791 170)"/>
+      <text class="q" x="380" y="140">0 s</text><text class="q" x="596" y="140">1,5 s</text><text class="q" x="776" y="200">3 s</text>
+    </svg>
+  </div>
+  <h3>Chaque trait a un identifiant</h3>
+  <p>Chaque nœud <code>split</code> du découpage reçoit un <code>id</code> stable : <code>c1</code>, <code>c2</code>…
+    C'est lui qui relie un trait à ses pistes. Les planches existantes n'en ont pas : <code>ensureCutIds(layout)</code>
+    les donne à l'ouverture (éditeur) et <code>ensure_cut_ids</code> côté serveur (découpages créés par
+    <code>make_layout</code> / <code>random_layout</code>). Couper une case (<code>splitLeaf</code>) donne au nouveau
+    trait <code>newCutId(layout)</code> = le plus grand numéro + 1. Les numéros ne sont jamais réutilisés dans une même
+    planche tant que le trait existe.</p>
+  <h3>Les pistes : <code>project.anim</code></h3>
+<pre><code>"anim": {
+  "tracks": {
+    "c2.a": [ {"t": 0,   "v": 0.45, "e": "ease"},
+              {"t": 1.5, "v": 0.20, "e": "out2"} ],
+    "c2.b": [ {"t": 0,   "v": 0.58, "e": "ease"},
+              {"t": 3,   "v": 0.80, "e": "ease"} ],
+    "page.gutter": [ {"t": 0, "v": 22, "e": "linear"}, {"t": 2, "v": 60, "e": "ease"} ],
+    "page.bg":     [ {"t": 0, "v": "#ffffff", "e": "ease"}, {"t": 2, "v": "#101010", "e": "ease"} ]
+  }
+}</code></pre>
+  <div class="tbl"><table>
+    <tr><th>Champ</th><th>Sens</th></tr>
+    <tr><td><code>"cN.a"</code>, <code>"cN.b"</code></td><td>Un bout de trait. <code>v</code> de 0 à 1, comme <code>a</code> / <code>b</code> du nœud.</td></tr>
+    <tr><td><code>"page.bg"</code>, <code>"page.fill"</code>, <code>"page.stroke"</code></td><td>Fond autour des cases, couleur des cases vides, couleur des traits. <code>v</code> = <code>"#rrggbb"</code>.</td></tr>
+    <tr><td><code>"page.strokeWidth"</code></td><td>Épaisseur des traits, 0 à 30 (unités de page).</td></tr>
+    <tr><td><code>"page.gutter"</code>, <code>"page.margin"</code></td><td>Gouttière 0 à 120, marge 0 à 400 (unités de page).</td></tr>
+    <tr><td><code>t</code></td><td>Secondes depuis le début de la page, 0 à 600, arrondi à 4 décimales. Dans l'éditeur, les clés tombent sur une image (<code>snap</code> à 1/fps).</td></tr>
+    <tr><td><code>e</code></td><td>Courbe de cette clé jusqu'à la suivante : <code>ease</code>, <code>linear</code>, <code>in</code>, <code>out</code>, <code>ease2</code>, <code>in2</code>, <code>out2</code>, <code>hold</code>. Inconnue → <code>ease</code>.</td></tr>
+  </table></div>
+  <ul>
+    <li>Les clés d'une piste sont triées par <code>t</code>, une seule par instant (à une demi-image près).</li>
+    <li>Une piste vide est supprimée ; une piste d'un trait qui n'existe plus aussi (<code>cleanAnim</code>).</li>
+    <li>Sans piste, la valeur est celle du nœud (<code>a</code>, <code>b</code>) ou de <code>project.page</code> : une
+      planche sans animation est strictement identique à aujourd'hui.</li>
+    <li>Nouvelle couleur de page <code>page.fill</code> (cases vides, défaut <code>#ffffff</code>), à ajouter aux
+      <code>PAGE_DEFAULTS</code> JS et Python, à l'inspecteur (« Cases ») et au dessin de <code>page.jpg</code>.</li>
+    <li><code>anim</code> fait partie de l'instantané d'annulation (<code>snapshot()</code>) avec <code>layout</code>.</li>
+    <li>Appliquer un nouveau découpage remet <code>anim = {tracks: {}}</code> (annulable).</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="calcul">
+  <div class="sec-head"><p class="eyebrow">4 · Mathématiques</p><h2>Le calcul (trois copies identiques)</h2></div>
+  <p>Tout tient en cinq fonctions. Elles sont à recopier telles quelles depuis <code>app/web/js/geometry.js</code>
+    d'Alive-Video, puis à transcrire dans <code>player/alive-player.js</code> (sans <code>import</code> : le lecteur est
+    un script autonome) et dans <code>app/geometry.py</code>.</p>
+  <h3>Les courbes</h3>
+  <div class="tbl"><table>
+    <tr><th>id</th><th>Nom dans l'interface</th><th>Formule, u de 0 à 1</th></tr>
+    <tr><td><code>ease</code></td><td>Ease in-out (douce), par défaut</td><td><code>u &lt; 0,5 ? 4u³ : 1 − (−2u + 2)³ / 2</code></td></tr>
+    <tr><td><code>linear</code></td><td>Linéaire</td><td><code>u</code></td></tr>
+    <tr><td><code>in</code></td><td>Ease in (démarre en ralenti)</td><td><code>u³</code></td></tr>
+    <tr><td><code>out</code></td><td>Ease out (ralentit à l'arrivée)</td><td><code>1 − (1 − u)³</code></td></tr>
+    <tr><td><code>ease2</code></td><td>Ease in-out fort</td><td><code>u &lt; 0,5 ? 16u⁵ : 1 − (−2u + 2)⁵ / 2</code></td></tr>
+    <tr><td><code>in2</code></td><td>Ease in fort (long ralenti au départ)</td><td><code>u⁵</code></td></tr>
+    <tr><td><code>out2</code></td><td>Ease out fort (long ralenti à l'arrivée)</td><td><code>1 − (1 − u)⁵</code></td></tr>
+    <tr><td><code>hold</code></td><td>Palier (reste, puis saute)</td><td><code>0</code></td></tr>
+  </table></div>
+<pre><code>export const EASES = [                       // [id, nom court (barre), nom long (clic droit)]
+  ["ease", "Ease in-out", "Ease in-out (douce : démarre et arrive en ralenti)"],
+  ["linear", "Linéaire", "Linéaire (vitesse constante)"],
+  ["in", "Ease in", "Ease in (démarre en ralenti, accélère)"],
+  ["out", "Ease out", "Ease out (ralentit à l'arrivée)"],
+  ["ease2", "Ease in-out fort", "Ease in-out fort (ralentis marqués aux deux bouts)"],
+  ["in2", "Ease in fort", "Ease in fort (long ralenti au départ)"],
+  ["out2", "Ease out fort", "Ease out fort (long ralenti à l'arrivée)"],
+  ["hold", "Palier", "Palier (reste sur place, puis saute à la clé suivante)"],
+];
+export function ease(e, u) {
+  if (e === "linear") return u;
+  if (e === "in") return u ** 3;
+  if (e === "out") return 1 - (1 - u) ** 3;
+  if (e === "in2") return u ** 5;
+  if (e === "out2") return 1 - (1 - u) ** 5;
+  if (e === "ease2") return u &lt; 0.5 ? 16 * u ** 5 : 1 - (-2 * u + 2) ** 5 / 2;
+  if (e === "hold") return 0;
+  return u &lt; 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
+}</code></pre>
+  <h3>Valeur d'une piste à l'instant t</h3>
+  <p>Avant la première clé : la valeur de la première. Après la dernière : la valeur de la dernière. Entre deux clés :
+    la courbe de la clé de gauche.</p>
+<pre><code>export function trackValue(keys, t, fallback) {
+  if (!keys || !keys.length) return fallback;
+  if (t &lt;= keys[0].t) return keys[0].v;
+  for (let i = 0; i &lt; keys.length - 1; i++) {
+    const k0 = keys[i], k1 = keys[i + 1];
+    if (t &lt; k1.t) {
+      const u = (t - k0.t) / Math.max(1e-9, k1.t - k0.t);
+      return k0.v + (k1.v - k0.v) * ease(k0.e, u);
+    }
+  }
+  return keys[keys.length - 1].v;
+}
+
+export function hasAnim(anim) { return !!anim &amp;&amp; Object.values(anim.tracks || {}).some(k =&gt; k &amp;&amp; k.length); }
+
+// le découpage à l'instant t : arbre recopié, bouts animés remplacés
+export function layoutAt(layout, anim, t) {
+  if (!hasAnim(anim)) return layout;
+  const T = anim.tracks;
+  const walk = (n) =&gt; n.t === "leaf" ? n : Object.assign({}, n, {
+    a: trackValue(T[n.id + ".a"], t, n.a), b: trackValue(T[n.id + ".b"], t, n.b), c: [walk(n.c[0]), walk(n.c[1])] });
+  return walk(layout);
+}
+
+// fin de l'animation = la dernière clé de toutes les pistes
+export function animEnd(anim) {
+  let e = 0;
+  for (const k of Object.values((anim &amp;&amp; anim.tracks) || {})) for (const x of k || []) e = Math.max(e, x.t);
+  return e;
+}</code></pre>
+  <h3>Le style de page à l'instant t</h3>
+  <p>Les nombres suivent <code>trackValue</code>. Les couleurs sont interpolées composante par composante (R, V, B de 0 à
+    1) avec la courbe de la clé. <code>pageAt</code> rend une copie de <code>page</code> avec les valeurs du moment, et
+    <code>out.rgb = {bg, fill, stroke}</code> en composantes pour qui dessine (WebGL, canvas).</p>
+<pre><code>export const PAGE_TRACKS = [
+  { k: "bg", label: "Fond (autour des cases)", color: true },
+  { k: "fill", label: "Couleur des cases", color: true },
+  { k: "stroke", label: "Couleur des traits", color: true },
+  { k: "strokeWidth", label: "Épaisseur des traits", min: 0, max: 30, step: 0.5 },
+  { k: "gutter", label: "Gouttière", min: 0, max: 120, step: 1 },
+  { k: "margin", label: "Marge", min: 0, max: 400, step: 1 },
+];
+export function hexRgb(hex) { const s = String(hex || "#ffffff").replace("#", "");
+  return [0, 2, 4].map(i =&gt; (parseInt(s.slice(i, i + 2), 16) || 0) / 255); }
+export function rgbHex(c) { return "#" + c.map(x =&gt; Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, "0")).join(""); }
+export function colorValue(keys, t, fallback) {
+  if (!keys || !keys.length) return hexRgb(fallback);
+  if (t &lt;= keys[0].t) return hexRgb(keys[0].v);
+  for (let i = 0; i &lt; keys.length - 1; i++) {
+    const k0 = keys[i], k1 = keys[i + 1];
+    if (t &lt; k1.t) {
+      const e = ease(k0.e, (t - k0.t) / Math.max(1e-9, k1.t - k0.t)), a = hexRgb(k0.v), b = hexRgb(k1.v);
+      return a.map((x, j) =&gt; x + (b[j] - x) * e);
+    }
+  }
+  return hexRgb(keys[keys.length - 1].v);
+}
+export function pageAt(page, anim, t) {
+  const T = (anim &amp;&amp; anim.tracks) || {}, out = Object.assign({}, page), rgb = {};
+  for (const d of PAGE_TRACKS) {
+    const keys = T["page." + d.k];
+    if (d.color) { rgb[d.k] = colorValue(keys, t, page[d.k] || (d.k === "stroke" ? "#111111" : "#ffffff")); out[d.k] = rgbHex(rgb[d.k]); }
+    else out[d.k] = trackValue(keys, t, page[d.k]);
+  }
+  out.rgb = rgb;
+  return out;
+}</code></pre>
+  <h3>Une seule modification de <code>compute()</code> : la case refermée</h3>
+  <p>Pendant une animation, un trait peut toucher le bord : le polygone d'un côté a moins de 3 points. Aujourd'hui
+    <code>compute()</code> plante sur <code>bbox()</code> d'un polygone vide. Il faut laisser passer le cas : la case
+    existe dans l'arbre mais n'a pas de forme à cet instant, et ses sous-cases non plus.</p>
+<pre><code>// dans walk(node, poly, path) de compute()
+if (node.t === "leaf") { panels.push({ id: node.id, poly, bbox: poly.length &gt;= 3 ? bbox(poly) : null, path }); return; }
+if (poly.length &lt; 3) {                 // case refermée (animation) : ses sous-cases n'existent pas à cet instant
+  walk(node.c[0], [], path.concat(0)); walk(node.c[1], [], path.concat(1)); return;
+}</code></pre>
+  <p>Partout où l'on parcourt <code>geom.panels</code>, ignorer les cases dont <code>poly.length &lt; 3</code> (pas de
+    dessin, pas d'icône, pas de clic). Même garde dans <code>compute</code> du lecteur (<code>computeLayout</code>) et de
+    <code>geometry.py</code>.</p>
+  <h3>En Python (serveur)</h3>
+  <p>À recopier depuis <code>app/geometry.py</code> d'Alive-Video : <code>EASES</code>, <code>ease</code>,
+    <code>track_value</code>, <code>has_anim</code>, <code>layout_at</code>, <code>PAGE_COLORS</code>,
+    <code>PAGE_NUMS</code>, <code>hex_rgb</code>, <code>color_value</code>, <code>page_at</code>, <code>anim_end</code>,
+    <code>cut_ids</code>, <code>ensure_cut_ids</code>, <code>clean_anim</code>. La dernière est la porte d'entrée : elle
+    ne garde que des pistes valides.</p>
+<pre><code>def clean_anim(anim, layout, max_t=600.0):
+    """Pistes propres : traits existants, clés triées, valeurs bornées, une clé par instant, courbes connues."""
+    ids = set(cut_ids(layout))
+    out = {}
+    for key, keys in ((anim or {}).get("tracks") or {}).items():
+        cid, _, end = str(key).rpartition(".")
+        page = cid == "page" and (end in PAGE_COLORS or end in PAGE_NUMS)
+        if not isinstance(keys, list) or not (page or (cid in ids and end in ("a", "b"))):
+            continue
+        clean = {}
+        for k in keys:
+            try:
+                t = round(max(0.0, min(max_t, float(k["t"]))), 4)
+                if page and end in PAGE_COLORS:
+                    v = str(k["v"]).lower()
+                    if not (len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdef" for c in v[1:])):
+                        continue
+                elif page:
+                    lo, hi = PAGE_NUMS[end]
+                    v = round(max(lo, min(hi, float(k["v"]))), 3)
+                else:
+                    v = round(max(0.0, min(1.0, float(k["v"]))), 5)
+            except (KeyError, TypeError, ValueError):
+                continue
+            clean[t] = {"t": t, "v": v, "e": k.get("e") if k.get("e") in EASES else "ease"}
+        if clean:
+            out[key] = [clean[t] for t in sorted(clean)]
+    return {"tracks": out} if out else {}</code></pre>
+  <div class="note"><b>Vérifier l'identité des trois copies</b>
+    <p>Calculer <code>ease(e, u)</code> pour les 8 courbes et u = 0,1 / 0,3 / 0,5 / 0,7 / 0,9 en JS (console de
+      l'application : <code>await import("/web/js/geometry.js")</code> ou le chemin équivalent) et en Python : les 40
+      valeurs doivent être identiques à 10⁻⁶. Puis comparer, pour une planche animée et trois instants, les polygones de
+      l'éditeur, du lecteur et du serveur.</p></div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="editeur">
+  <div class="sec-head"><p class="eyebrow">5 · Application</p><h2>L'éditeur de planche</h2></div>
+  <h3>État de l'application (<code>main.js</code>)</h3>
+  <div class="tbl"><table>
+    <tr><th>Champ / méthode</th><th>Rôle</th></tr>
+    <tr><td><code>editMode</code></td><td>Mode ✏️ Edit, retenu en préférence locale (<code>ac-edit</code>).</td></tr>
+    <tr><td><code>animMode</code>, <code>animT</code>, <code>animPlaying</code></td><td>Mode Animate framing, tête de lecture (s), lecture en cours.</td></tr>
+    <tr><td><code>selectedCut</code></td><td>Trait choisi (<code>"c2"</code>, ou <code>"page"</code> pour le style de page).</td></tr>
+    <tr><td><code>timeline</code>, <code>tlHost</code></td><td>L'instance de <code>Timeline</code> et son conteneur sous la planche (<code>div.tlhost</code>, caché hors du mode).</td></tr>
+    <tr><td><code>viewLayout()</code></td><td><code>layoutAt(P.layout, P.anim, animMode ? animT : animEnd(P.anim))</code> : ce que montre l'éditeur.</td></tr>
+    <tr><td><code>viewPage()</code></td><td><code>pageAt(P.page, P.anim, même instant)</code>.</td></tr>
+    <tr><td><code>showTools()</code></td><td><code>editMode &amp;&amp; !animMode</code> : les icônes des cases.</td></tr>
+    <tr><td><code>setEditMode(on)</code>, <code>setAnimMode(on)</code></td><td>Exclusifs ; <code>setAnimMode</code> crée ou détruit la timeline, met <code>body.anim-on</code> (la planche se réduit pour laisser la place), redessine.</td></tr>
+    <tr><td><code>animSeek(t, live)</code></td><td>Tête de lecture bornée à <code>[0, timelineLength()]</code>, redessin léger de la planche, <code>timeline.update()</code>.</td></tr>
+    <tr><td><code>animToggle()</code></td><td>Lecture / pause : boucle <code>requestAnimationFrame</code>, <code>animT = (animT + dt) % timelineLength()</code>.</td></tr>
+    <tr><td><code>snap(t)</code></td><td><code>Math.round(t * fps) / fps</code>. Dans Alive-Comics : le fps de la planche (24 par défaut).</td></tr>
+    <tr><td><code>timelineLength()</code></td><td>Alive-Video : <code>max(1, durée de la page, animEnd + 0,5)</code>. Alive-Comics : <code>max(4, boucle la plus longue des cases, animEnd + 1)</code>.</td></tr>
+    <tr><td><code>finalGeom()</code></td><td><code>compute(pageAt(…, animEnd), layoutAt(…, animEnd))</code> : la page finie, pour <code>page.jpg</code>, <code>frames.png</code>, la vignette et <code>project.geometry</code>.</td></tr>
+  </table></div>
+  <div class="warn"><b>Attention au <code>project.geometry</code> enregistré</b>
+    <p>Partout où Alive-Comics enregistre ou dessine la géométrie « de la planche » (<code>geometryForSave</code>,
+      <code>pageImages</code>, <code>compose.py</code>), il faut la page finie (<code>animEnd</code>), pas le découpage
+      brut, sinon la vignette et la page jouable de secours montrent l'état de départ.</p></div>
+  <h3>Dessin (<code>editor.js</code>)</h3>
+  <ul>
+    <li><code>render()</code> : <code>pg = app.viewPage()</code>, <code>geom = compute(pg, app.viewLayout())</code> ; les cases vides
+      prennent <code>pg.fill</code>, le fond <code>pg.bg</code>, les traits <code>pg.stroke</code> et
+      <code>pg.strokeWidth</code>.</li>
+    <li>Poignées des traits : classes <code>anim</code> (mode actif), <code>sel</code> (trait choisi), <code>keyed</code>
+      sur une attache qui a des clés (couleur d'accent).</li>
+    <li><code>renderOverlay()</code> (icônes des cases) sort tout de suite si <code>!app.showTools()</code>.</li>
+    <li><code>render(light)</code> : pendant la lecture, sans l'overlay, pour rester fluide.</li>
+  </ul>
+  <h3>Glisser un trait</h3>
+  <p>Au <code>pointerdown</code> sur une poignée, garder une copie des pistes (<code>keys0</code>) et prévenir la timeline
+    (<code>app.touchCut(id, mode)</code>, mode <code>move</code>, <code>end0</code> ou <code>end1</code>). Au
+    <code>pointermove</code>, après le calcul habituel de <code>a</code> et <code>b</code> :</p>
+<pre><code>if (this.app.animMode) {                       // Animate framing : une clé à l'instant de la tête de lecture
+  a = Math.max(0, Math.min(1, a)); b = Math.max(0, Math.min(1, b));   // une case peut se refermer entièrement
+  this.app.keyCut(d, a, b);
+  d.moved = d.anim = true; this.render(); return;
+}
+if (this.app.cutAnimated(d.id)) {              // trait animé, hors du mode : toute son animation se décale
+  this.app.shiftCut(d, Math.max(0, Math.min(1, a)), Math.max(0, Math.min(1, b)));
+  d.moved = d.anim = true; this.render(); return;
+}
+// sinon : comportement actuel (bornes 0,04 à 0,96, refus si une case devient trop petite)</code></pre>
+  <p>Au <code>pointerup</code> : <code>if (d.anim) { app.animChanged(); return; }</code>.</p>
+<pre><code>// main.js : pose (ou met à jour) une clé ; une clé par image
+setKey(track, t, v) {
+  const T = this.project.anim.tracks, keys = T[track] = T[track] || [];
+  const k = keys.find(x =&gt; Math.abs(x.t - t) &lt; 0.5 / this.fps());
+  if (k) k.v = v; else { keys.push({ t, v, e: "ease" }); keys.sort((a, b) =&gt; a.t - b.t); }
+},
+// glisser une attache en mode animation ; la première clé d'une piste en ajoute une à 0 s (position de départ)
+keyCut(d, a, b) {
+  const P = this.project;
+  P.anim.tracks = JSON.parse(JSON.stringify(d.keys0));
+  const t = this.snap(this.animT);
+  const ends = d.mode === "move" ? ["a", "b"] : d.mode === "end0" ? ["a"] : ["b"];
+  for (const end of ends) {
+    const track = `${d.id}.${end}`, start = end === "a" ? d.a : d.b;
+    if (!(P.anim.tracks[track] || []).length &amp;&amp; t &gt; 1e-6) this.setKey(track, 0, start);
+    this.setKey(track, t, end === "a" ? a : b);
+  }
+},
+// glisser un trait animé hors du mode : toute son animation se décale d'autant
+shiftCut(d, a, b) {
+  const P = this.project;
+  P.anim.tracks = JSON.parse(JSON.stringify(d.keys0));
+  const node = this.nodeOfCut(d.id);
+  const ends = d.mode === "move" ? ["a", "b"] : d.mode === "end0" ? ["a"] : ["b"];
+  for (const end of ends) {
+    const delta = end === "a" ? a - d.a : b - d.b, keys = P.anim.tracks[`${d.id}.${end}`];
+    if (keys &amp;&amp; keys.length) for (const k of keys) k.v = Math.max(0, Math.min(1, k.v + delta));
+    else if (node) node[end] = Math.max(0.04, Math.min(0.96, node[end] + delta));
+  }
+},
+cleanAnim() {                                   // pistes des traits disparus retirées
+  const P = this.project;
+  if (!P.anim || !P.anim.tracks) { P.anim = { tracks: {} }; return; }
+  const ids = new Set(cutIdsOf(P.layout)); ids.add("page");
+  for (const k of Object.keys(P.anim.tracks))
+    if (!ids.has(k.split(".")[0]) || !(P.anim.tracks[k] || []).length) delete P.anim.tracks[k];
+},
+animChanged() {                                 // après toute modification de l'animation
+  this.cleanAnim(); this.timeline?.render(); this.editor.render();
+  if (!this.selected) this.refreshInspector();  // badges « animé » des réglages de page
+  this.commit("anim", true);                    // une étape d'annulation par action (§ 7)
+},</code></pre>
+  <h3>Inspecteur, réglages de page</h3>
+  <p>Ajouter la couleur « Cases » (<code>page.fill</code>). Pour chaque réglage animable, si la piste
+    <code>page.&lt;clé&gt;</code> a des clés : badge <code>small.animated</code> « 🎞 animé » (titre : « Animé : se règle
+    dans la timeline ») et contrôle <code>disabled</code>.</p>
+  <h3>Vidéos en repère <span class="tag opt">optionnel</span></h3>
+  <p>Dans Alive-Video, en Animate framing, chaque case pose sa vidéo (copie de lecture, muette) dans un
+    <code>&lt;foreignObject&gt;</code> de la planche SVG, sous le même <code>clip-path</code> que l'image de la case, et la
+    cale sur la tête de lecture : au glisser, une recherche à la fois (la dernière position demandée gagne, sur
+    l'évènement <code>seeked</code>) ; pendant la lecture, <code>play()</code> avec <code>playbackRate</code> = vitesse, et
+    recalage si l'écart dépasse 0,25 s ; hors du mode, pause et retour à l'affiche. Code :
+    <code>editor.js › liveVideo()</code>, <code>syncVideos()</code>, <code>sourceTime()</code>.</p>
+  <p>Dans Alive-Comics, le temps d'une case n'est pas celui d'Alive-Video (boucle avec fondu enchaîné, aller-retour,
+    accélérations de tête et de queue : <code>configure()</code>, <code>frac()</code>, <code>idxOf()</code> du lecteur).
+    <code>sourceTime()</code> doit reprendre ces règles, en partant du début de la boucle à t = 0. À faire après le
+    reste. Safari : la vidéo dans un <code>foreignObject</code> est fragile ; si elle ne s'affiche pas ou déborde, poser
+    une <code>&lt;video&gt;</code> HTML au-dessus de la planche, découpée par <code>clip-path: polygon(…)</code>.</p>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="timeline">
+  <div class="sec-head"><p class="eyebrow">6 · Interface</p><h2>La timeline</h2></div>
+  <p>Une seule classe, <code>app/web/js/timeline.js</code> d'Alive-Video (environ 500 lignes), à recopier presque telle
+    quelle. Elle ne parle qu'à l'application, par le contrat ci-dessous.</p>
+  <h3>Ce qu'elle attend de l'application</h3>
+  <div class="tbl"><table>
+    <tr><th>Membre</th><th>Usage</th></tr>
+    <tr><td><code>app.project</code></td><td><code>layout</code>, <code>page</code>, <code>anim.tracks</code> (lus et modifiés en place).</td></tr>
+    <tr><td><code>app.animT</code>, <code>app.animPlaying</code>, <code>app.selectedCut</code></td><td>Lus ; <code>selectedCut</code> écrit.</td></tr>
+    <tr><td><code>timelineLength()</code>, <code>snap(t)</code>, <code>animSeek(t, live)</code>, <code>animToggle()</code>, <code>setAnimMode(false)</code></td><td>Tête de lecture et lecture.</td></tr>
+    <tr><td><code>setKey(track, t, v)</code>, <code>animChanged()</code></td><td>Écriture des clés et enregistrement.</td></tr>
+    <tr><td><code>editor.render(light)</code>, <code>refreshInspector()</code>, <code>toast(msg)</code></td><td>Retours visuels.</td></tr>
+    <tr><td><code>app._tlKeep</code></td><td>État gardé quand la planche est rechargée (sélection, copie).</td></tr>
+  </table></div>
+  <h3>Disposition</h3>
+  <ul>
+    <li><b>Barre</b> : titre, ⏮ début, ▶ / ⏸, temps « 1,20 s / 6,89 s », <b>◆ Clé ici</b>, <b>◆ Clé partout</b>,
+      <b>☰ Toutes les lignes</b>, menu <b>Courbe</b> (noms courts), <b>✕ Clé</b>, <b>Effacer la ligne</b>, <b>Tout
+      effacer</b>, bouton <b>🎨 Style de page</b> (allumé / éteint, retenu en préférence locale), durée de la page, ✕
+      fermer.</li>
+    <li><b>Règle</b> en haut (collante), graduée tous les 0,5 / 1 / 2 / 5 s selon la durée.</li>
+    <li><b>Module Style de page</b> (si allumé) : 6 lignes avec chacune son réglage dans l'étiquette (sélecteur de couleur
+      ou curseur + valeur). Changer le réglage pose une clé à la tête de lecture ; la première clé d'une ligne en pose
+      aussi une à 0 s avec la valeur d'avant.</li>
+    <li><b>Traits</b> : deux lignes par trait, dans l'ordre de l'arbre : « Trait 2 · bout haut (vertical) », valeur du
+      moment en % (« · fixe » sans clé).</li>
+    <li>Les losanges sont posés en % de la durée ; une tête de lecture verticale traverse toutes les lignes.</li>
+  </ul>
+  <h3>Toutes les interactions</h3>
+  <div class="tbl"><table>
+    <tr><th>Geste</th><th>Effet</th></tr>
+    <tr><td>Clic / glisser sur la règle</td><td>Tête de lecture.</td></tr>
+    <tr><td>Clic dans le vide d'une ligne</td><td>Choisit la ligne, place la tête de lecture, vide la sélection de clés.</td></tr>
+    <tr><td>Glisser dans le vide d'une ligne</td><td>Rectangle de sélection, sur plusieurs lignes (Maj ou Ctrl : ajoute à la sélection).</td></tr>
+    <tr><td>Double-clic dans une ligne</td><td>Une clé à cet instant, valeur du moment.</td></tr>
+    <tr><td>Clic sur une clé</td><td>Elle seule est choisie, la tête de lecture va sur elle.</td></tr>
+    <tr><td>Maj, Ctrl ou ⌘ + clic sur une clé</td><td>L'ajoute à la sélection ou l'en retire.</td></tr>
+    <tr><td>Glisser une clé choisie</td><td>Toute la sélection se décale du même temps (calé sur les images, borné à la timeline). Une clé déplacée sur une autre de la même ligne la remplace.</td></tr>
+    <tr><td>Clic droit sur une clé</td><td>Menu : Dupliquer à la tête de lecture (<kbd>Ctrl</kbd>+<kbd>D</kbd>), Dupliquer juste après (0,5 s après la sélection), Copier (<kbd>Ctrl</kbd>+<kbd>C</kbd>), Coller à la tête de lecture (<kbd>Ctrl</kbd>+<kbd>V</kbd>), les 8 courbes (noms longs, ✓ sur l'actuelle), Supprimer (<kbd>Suppr</kbd>). Avec plusieurs clés : « (n clés) ».</td></tr>
+    <tr><td>Clic droit dans une ligne</td><td>Menu : ◆ Clé ici, Coller ici, Tout sélectionner, ◆ Clé partout.</td></tr>
+    <tr><td>Clic sur le nom d'une ligne</td><td>La choisit (trait : met aussi le trait en évidence dans la planche).</td></tr>
+    <tr><td>Maj, Ctrl ou ⌘ + clic sur un nom</td><td>Plusieurs lignes ; « ◆ Clé ici » pose alors une clé sur chacune.</td></tr>
+    <tr><td><kbd>Suppr</kbd> / <kbd>⌫</kbd></td><td>Efface les clés choisies.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Toutes les clés.</td></tr>
+    <tr><td><kbd>Échap</kbd></td><td>Ferme le menu, vide la sélection.</td></tr>
+    <tr><td><kbd>Espace</kbd></td><td>Lecture / pause.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Annuler / refaire, une étape par action (§ 7).</td></tr>
+    <tr><td>Tout effacer</td><td>Demande confirmation ; chaque ligne garde sa valeur à la tête de lecture (écrite dans le nœud ou la page), toutes les pistes sont retirées.</td></tr>
+    <tr><td>Effacer la ligne</td><td>Idem pour les lignes choisies (un trait : ses deux bouts).</td></tr>
+  </table></div>
+  <h3>Comment c'est fait (pièges compris)</h3>
+  <ul>
+    <li><b>Sélection</b> = un <code>Set</code> des objets clés eux-mêmes (<code>{t, v, e}</code> des pistes), plus une
+      <code>Map</code> clé → losange pour repeindre sans tout redessiner. <code>selList()</code> rend les clés choisies
+      encore présentes : une annulation ou un rechargement remplace les objets, la sélection se retrouve alors par
+      <code>ligne@instant</code> (<code>state()</code> / <code>remap()</code>).</li>
+    <li><b>Une clé par image et par ligne</b> : après un déplacement ou un collage, <code>tidy()</code> trie et, en cas
+      de collision à moins d'une demi-image, garde la clé choisie (celle qu'on vient de bouger ou de coller).</li>
+    <li><b>Coller / dupliquer</b> : les clés gardent leurs écarts ; la première tombe sur la tête de lecture
+      (« juste après » : 0,5 s après la dernière de la sélection ; si la tête de lecture est déjà sur la première, on
+      passe en « juste après »). Les copies deviennent la sélection, prêtes à être glissées. Coller saute les lignes qui
+      n'existent plus.</li>
+    <li><b>Glisser</b> : écouter <code>pointermove</code> / <code>pointerup</code> sur <code>window</code>, pas sur la
+      ligne (sinon on perd le pointeur en sortant de la ligne, et <code>setPointerCapture</code> échoue avec des
+      évènements de test). Seuil de 3 px avant de bouger, 4 px avant de tracer le rectangle.</li>
+    <li><code>.tl-grid { user-select: none }</code> : sinon le rectangle sélectionne le texte des étiquettes.</li>
+    <li><b>Mac</b> : <kbd>ctrl</kbd> + clic ouvre le menu contextuel après un <code>pointerdown</code> ; ignorer ce
+      <code>pointerdown</code> (<code>e.ctrlKey &amp;&amp; /Mac/.test(navigator.platform)</code>), sinon il retire la clé de la
+      sélection avant l'ouverture du menu.</li>
+    <li><b>Raccourcis</b> dans <code>keys()</code> de l'application, seulement en Animate framing ; Ctrl+C seulement s'il
+      n'y a pas de texte sélectionné dans la page ; <code>preventDefault()</code> partout (Ctrl+D = signet dans les
+      navigateurs).</li>
+    <li><b>Menus</b> : une seule <code>div.popmenu.tl-menu</code> à la fois, fermée au premier <code>pointerdown</code>
+      ailleurs (écouteur en capture posé au tour suivant) ou à <kbd>Échap</kbd>.</li>
+    <li><b>Rendu</b> : <code>render()</code> reconstruit tout (après chaque changement d'animation),
+      <code>update()</code> ne bouge que la tête de lecture, le temps et les valeurs (à chaque image de lecture).</li>
+  </ul>
+  <h3>Styles</h3>
+  <p>Toutes les classes <code>.tl*</code> sont à la fin de <code>app/web/app.css</code> d'Alive-Video (accent à passer
+    au jaune d'Alive-Comics) : <code>.tlhost</code> (hauteur 240 px, bordure haute accent), <code>.tl-bar</code>,
+    <code>.tl-grid</code>, <code>.tl-row</code> (grille étiquette 250 px + piste), <code>.tl-row.sel</code>,
+    <code>.tl-row.cut</code>, <code>.tl-ruler</code>, <code>.tl-key</code> (losange 12 px tourné de 45°),
+    <code>.tl-key.on</code>, <code>.tl-head</code>, <code>.tl-marquee</code>, <code>.tl-section</code>,
+    <code>.tl-ctl</code>, <code>.tl-menu</code>, <code>.tl-menu-head</code>, <code>body.anim-on</code> (planche réduite
+    pour laisser la place à la timeline).</p>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="annuler">
+  <div class="sec-head"><p class="eyebrow">7 · À faire en premier</p><h2>Annuler, refaire, recharger : deux bugs à corriger d'abord</h2></div>
+  <p>Alive-Video les a hérités d'Alive-Comics ; ils sont encore dans Alive-Comics (vérifié le 29 octobre). Sans ces
+    corrections, la timeline perd sa sélection et l'annulation quelques secondes après chaque modification.</p>
+  <h3>Bug 1 · la vignette fait recharger la planche <span class="tag must">obligatoire</span></h3>
+  <p>Après chaque modification, l'application envoie <code>page.jpg</code>, <code>frames.png</code> puis
+    <code>thumb.jpg</code>. Le serveur enregistre la vignette par <code>store.mutate</code>, ce qui augmente
+    <code>rev</code>, sans le dire à l'application. Quelques secondes plus tard, <code>watchRev()</code> voit un
+    <code>rev</code> plus grand, croit la planche modifiée ailleurs et la rouvre : la pile d'annulation est vidée et la
+    timeline recréée.</p>
+<pre><code># app/server.py, envoi des images de page
+if name == "thumb.jpg":                       # la planche change de numéro : l'application le reprend
+    p = store.mutate(pid, lambda p: p.update(thumb=f"/projects/{pid}/{rel}"))
+    return self.send_json({"file": rel, "rev": p.get("rev")})
+return self.send_json({"file": rel})</code></pre>
+<pre><code>// app/web/js/exporter.js, fin de pageImages()
+return (await upload(base + "thumb.jpg", await toBlob(th, "image/jpeg", 0.8))).rev;   // nouveau numéro de la planche
+
+// app/web/js/main.js, là où pageImages() est appelée
+const rev = await pageImages(/* … */);
+if (rev === this._rev + 1) this._rev = rev;   // notre propre vignette : pas de rechargement</code></pre>
+  <p>Vérifier que <code>store.mutate</code> d'Alive-Comics renvoie bien la planche enregistrée (c'est le cas dans
+    Alive-Video). Le test <code>rev === _rev + 1</code> garde le rechargement quand quelqu'un d'autre a vraiment modifié
+    la planche entre-temps.</p>
+  <h3>Bug 2 · après une annulation, l'action suivante enregistre un mauvais état <span class="tag must">obligatoire</span></h3>
+  <p><code>commit()</code> empile <code>this._last</code>, l'état après la dernière action. Mais <code>restore()</code>
+    (annuler, refaire) ne le met pas à jour : après une annulation, la prochaine action empile l'état d'avant
+    l'annulation, et un second Ctrl+Z ramène ce qu'on venait d'annuler.</p>
+<pre><code>restore(snap) {
+  const keep = this.timeline?.state();          // clés et lignes choisies, retrouvées par leur instant
+  Object.assign(this.project, JSON.parse(snap));
+  this._last = snap; this._lastKind = null;      // l'état courant : la prochaine action s'annule jusqu'ici
+  if (this.selected &amp;&amp; !this.project.panels[this.selected]) this.selected = null;
+  if (keep) this.timeline.remap(keep);
+  this.timeline?.render();
+  this.editor.render(); this.renderLeft(); this.refreshInspector(); this.save(); this.pageSoon();
+}</code></pre>
+  <h3>Deux réglages de l'annulation pour la timeline <span class="tag should">recommandé</span></h3>
+<pre><code>// une action de la timeline = une étape, jamais fusionnée avec la précédente
+commit(kind, step) {
+  if (!step &amp;&amp; this._last &amp;&amp; this._lastKind === kind &amp;&amp; Date.now() - this._lastT &lt; 1200) { /* même geste */ }
+  else if (this._last) this.pushUndo(this._last);
+  this._last = this.snapshot(); this._lastKind = kind; this._lastT = Date.now();
+  /* … suite inchangée … */
+}
+
+// keys() : Ctrl+Z / Ctrl+Y marchent aussi quand un curseur, une couleur ou un menu déroulant a le focus
+const field = tgt.closest("input, textarea, select");
+const typing = field &amp;&amp; (field.tagName === "TEXTAREA" ||
+               (field.tagName === "INPUT" &amp;&amp; !/^(range|color|checkbox|radio|button)$/.test(field.type)));
+if (!this.project || typing) return;           // saisie de texte : son propre Ctrl+Z
+if (field) {                                   // curseur, couleur, menu : seulement annuler / refaire
+  const k = e.key.toLowerCase();
+  if (!(e.ctrlKey || e.metaKey) || (k !== "z" &amp;&amp; k !== "y")) return;
+  field.blur();
+}</code></pre>
+  <p>Et dans <code>open()</code>, avant de recréer l'espace de travail lors d'un rechargement en Animate framing :
+    <code>this._tlKeep = keepAnim ? this.timeline?.state() : null;</code> (la timeline le reprend à sa création).</p>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="lecteur">
+  <div class="sec-head"><p class="eyebrow">8 · Le plus gros morceau</p><h2>Le lecteur d'Alive-Comics</h2></div>
+  <p>C'est là que les deux applications diffèrent le plus. Le lecteur d'Alive-Video dessine toute la page en WebGL ;
+    celui d'Alive-Comics est en HTML : une image de page (<code>img.ac-bg</code> = <code>page.jpg</code> : fond, cases,
+    affiches, traits), un <code>div.ac-panel</code> par case, positionné en % et découpé par
+    <code>clip-path: polygon(…)</code>, des vidéos en <code>object-fit: cover</code>, et <code>img.ac-frames</code>
+    (<code>frames.png</code>, les traits) par-dessus. Pas besoin de WebGL : il suffit de faire bouger ces éléments.</p>
+  <div class="note"><b>Bonne nouvelle</b>
+    <p>Les vidéos d'Alive-Comics remplissent leur case en <code>object-fit: cover</code>, avec le cadrage
+      (<code>fx.frame</code>) et le tremble (<code>fx.shake</code>) en <code>transform</code> relatif à la case. Quand le
+      <code>div</code> de la case change de taille, le navigateur recadre tout seul : rien à recalculer pour l'image.</p></div>
+  <h3>Les données reçues</h3>
+  <p>Seulement si la planche est animée, <code>manga_data.js</code> reçoit trois champs de plus (voir § 9) :
+    <code>layout</code> (l'arbre), <code>anim</code> (pistes nettoyées), <code>pagep</code> (<code>width, height, margin,
+    gutter, strokeWidth, stroke, bg, fill</code>). Et <code>panels</code> contient aussi les cases refermées dans la page
+    finie (présentes à d'autres instants).</p>
+  <h3>Une horloge de page</h3>
+  <p>Aujourd'hui chaque case a sa propre horloge (<code>st.pos</code>, au survol ou toujours). L'animation du cadrage a
+    besoin d'une horloge de page, indépendante des cases :</p>
+  <ul>
+    <li><code>inst.clock</code>, en secondes, avancée dans <code>tick()</code> de <code>dt</code> (déjà borné à 50 ms).</li>
+    <li>Elle démarre quand la page devient visible (<code>IntersectionObserver</code> sur <code>pageEl</code>, au moins
+      30 % visible) et repart de 0 quand on revient sur la page (tourner une page de livre : dans
+      <code>resetPage</code>).</li>
+    <li>Mode <b>une fois</b> (recommandé par défaut pour une BD) : <code>t = min(clock, animEnd)</code>, puis la page
+      reste sur le découpage final. Mode <b>en boucle</b> : <code>t = clock % (animEnd + 1)</code> (1 s sur la page
+      finie avant de repartir). À proposer dans les réglages de page (<code>page.animLoop</code>), à décider avec
+      David.</li>
+    <li><code>prefers-reduced-motion: reduce</code> : directement <code>t = animEnd</code>.</li>
+    <li>Mode édition de l'aperçu (<code>editHook</code>) : montrer la page finie, comme hors du mode dans l'éditeur.</li>
+  </ul>
+  <h3>À chaque image : placer les cases</h3>
+  <p>Fonctions à reprendre du lecteur d'Alive-Video, dans le même fichier (<code>ease</code>, <code>trackValue</code>,
+    <code>hasAnim</code>, <code>colorValue</code>, <code>pageAt</code>, <code>layoutAt</code>, <code>animEnd</code>,
+    <code>computeLayout</code>, <code>gbbox</code>, <code>grow</code>, <code>clipHalf</code>). Puis, en adaptant aux
+    noms d'Alive-Comics :</p>
+<pre><code>// mount() : préparer l'animation
+const anim = !!(M.layout &amp;&amp; M.pagep &amp;&amp; hasAnim(M.anim));
+inst.anim = anim; inst.clock = 0; inst.animEnd = anim ? animEnd(M.anim) : 0; inst.geoKey = null;
+if (anim) { pageEl.classList.add("ac-anim"); buildFrameLayers(inst); }      // calques SVG du fond et des traits
+
+// tick() : avant le pas des cases
+for (const inst of pages) if (inst.anim &amp;&amp; inst.visible) {
+  inst.clock += dt;
+  const t = REDUCED ? inst.animEnd
+          : inst.loop ? inst.clock % (inst.animEnd + 1)
+          : Math.min(inst.clock, inst.animEnd);
+  layoutPageAt(inst, t);
+}
+
+function layoutPageAt(inst, t) {
+  const M = inst.data, pg = pageAt(M.pagep, M.anim, t), sw = Math.max(0, +pg.strokeWidth || 0);
+  const polys = computeLayout(pg, layoutAt(M.layout, M.anim, t));       // { id: polygone } des cases visibles
+  const key = JSON.stringify([polys, pg.bg, pg.fill, pg.stroke, sw]);
+  if (key === inst.geoKey) return;               // rien n'a bougé (animation finie) : aucun travail
+  inst.geoKey = key;
+  drawFrame(inst, polys, pg, sw);                // fond, cases vides, traits (ci-dessous)
+  for (const st of [...inst.panels, ...inst.statics]) {   // + cases en relief si elles ont leur liste
+    const poly = polys[st.p.id];
+    st.el.hidden = !poly;                        // case refermée à cet instant
+    if (!poly) continue;
+    const b = gbbox(poly);
+    st.p.rect = [b.x0, b.y0, b.x1, b.y1];
+    placeEl(st.el, st.p.rect, grow(poly, sw / 2 + 1), M.size);   // la vidéo passe sous le trait
+    st.el._bub?.place?.(st.p.rect);              // calque des bulles : § 10
+  }
+}
+
+function placeEl(el, [x0, y0, x1, y1], poly, [PW, PH]) {
+  Object.assign(el.style, { left: x0 / PW * 100 + "%", top: y0 / PH * 100 + "%",
+                            width: (x1 - x0) / PW * 100 + "%", height: (y1 - y0) / PH * 100 + "%" });
+  const w = Math.max(1e-6, x1 - x0), h = Math.max(1e-6, y1 - y0);
+  el.style.clipPath = `polygon(${poly.map(([x, y]) =&gt; `${(x - x0) / w * 100}% ${(y - y0) / h * 100}%`).join(", ")})`;
+}</code></pre>
+  <h3>Fond, cases vides et traits</h3>
+  <p><code>page.jpg</code> et <code>frames.png</code> sont figés : sur une page animée, on les cache
+    (<code>.ac-page.ac-anim &gt; img.ac-bg, .ac-page.ac-anim &gt; img.ac-frames { visibility: hidden }</code>) et on
+    dessine à la place, dans deux calques SVG de la taille de la page (<code>viewBox="0 0 W H"</code>,
+    <code>preserveAspectRatio="none"</code>, <code>pointer-events: none</code>) :</p>
+  <ul>
+    <li><b>dessous</b> des cases : un <code>rect</code> plein de <code>pg.bg</code>, puis un <code>polygon</code> rempli de
+      <code>pg.fill</code> par case (ce qu'on voit tant que la vidéo n'est pas chargée, et dans les cases sans
+      média) ;</li>
+    <li><b>dessus</b> des cases : un <code>polygon</code> par case, <code>fill="none"</code>, <code>stroke=pg.stroke</code>,
+      <code>stroke-width=sw</code>, <code>stroke-linejoin="miter"</code> (comme le canevas de l'éditeur).</li>
+  </ul>
+  <p>Les affiches que <code>page.jpg</code> montrait avant le chargement des vidéos : utiliser l'attribut
+    <code>poster</code> de chaque vidéo (image de départ <code>start/&lt;case&gt;.png</code> recopiée dans la page
+    jouable). <code>page.jpg</code> reste la page finie : vignette, partage, page de secours sans JavaScript.</p>
+  <h3>Ce qui ne change pas</h3>
+  <ul>
+    <li>Lecture des vidéos au survol ou toujours, gestes (glisser dans le temps), sons au survol, visionneuse
+      (double-clic) : ils sont attachés au <code>div</code> de la case, qui suit l'animation.</li>
+    <li>Les pages sans <code>anim</code> : aucun calque ajouté, aucun calcul par image, rendu identique.</li>
+  </ul>
+  <div class="note"><b>Coût</b>
+    <p>Une douzaine de cases : un <code>compute</code> et quelques écritures de style par image pendant l'animation,
+      rien après (la clé <code>geoKey</code> ne change plus). Les vidéos ne sont jamais rechargées.</p></div>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="serveur">
+  <div class="sec-head"><p class="eyebrow">9 · Python</p><h2>Serveur et assemblage</h2></div>
+  <ol class="steps">
+    <li><b><code>app/geometry.py</code></b><div><p>Les fonctions du § 4 (courbes, pistes, page, <code>clean_anim</code>),
+      la garde « case refermée » dans <code>compute</code>, <code>ensure_cut_ids</code> appelée par
+      <code>make_layout</code> et <code>random_layout</code>, <code>"fill": "#ffffff"</code> dans
+      <code>PAGE_DEFAULTS</code>.</p></div></li>
+    <li><b>Enregistrement de la planche</b><div><p><code>merge_project</code> d'Alive-Comics part déjà de la version de
+      l'interface (<code>out = dict(ui_p)</code>) : <code>anim</code> passe tel quel. Vérifier qu'aucune liste blanche ne
+      l'écarte. <code>clean_anim</code> à l'assemblage suffit ; on peut aussi l'appliquer à l'enregistrement.</p></div></li>
+    <li><b><code>app/assemble.py</code>, page jouable</b><div>
+<pre><code>anim = G.clean_anim(p.get("anim"), p.get("layout") or {})
+if anim:                                         # cadrage animé : le lecteur recalcule les cases à chaque instant
+    data.update(layout=p["layout"], anim=anim, pagep={
+        "width": W, "height": H, "margin": page.get("margin"), "gutter": page.get("gutter"),
+        "strokeWidth": page.get("strokeWidth"), "stroke": page.get("stroke") or "#111111",
+        "bg": page.get("bg") or "#ffffff", "fill": page.get("fill") or "#ffffff"})
+cases = list(geo["panels"])
+if anim:                                         # cases refermées dans la page finie : présentes à d'autres instants
+    known = {g["id"] for g in cases}
+    cases += [{"id": i, "rect": [0, 0, 1, 1], "poly": [[0, 0], [1, 0], [1, 1], [0, 1]]}
+              for i in G.leaves(p.get("layout") or {}) if i not in known]</code></pre>
+      <p>Les vidéos de ces cases-là sont recopiées comme les autres ; le lecteur les cache tant qu'elles n'ont pas de
+        forme.</p></div></li>
+    <li><b>Cache de l'assemblage</b><div><p><code>page_key()</code> doit inclure <code>p["layout"]</code> et
+      <code>p["anim"]</code> : sinon changer une clé ne refait pas la page jouable.</p></div></li>
+    <li><b>Livres</b><div><p><code>build_book</code> recopie les données de chaque page : les champs <code>layout</code>,
+      <code>anim</code>, <code>pagep</code> suivent. Vérifier qu'aucun tri des clés de <code>data</code> ne les retire.</p></div></li>
+    <li><b><code>compose.py</code> (page.jpg côté serveur, pour les pilotages par API)</b><div><p>Dessiner la page finie :
+      <code>G.compute(G.page_at(page, anim, end), G.layout_at(layout, anim, end))</code> avec
+      <code>end = G.anim_end(anim)</code>, cases vides en <code>page.fill</code>.</p></div></li>
+  </ol>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="bulles">
+  <div class="sec-head"><p class="eyebrow">10 · Compatibilité</p><h2>Les bulles d'une case qui bouge</h2></div>
+  <p>Les bulles d'Alive-Comics ne changent pas de fonction ; elles doivent seulement suivre une case dont la taille et la
+    place changent. Aujourd'hui, <code>AliveBubbles.mount(pageEl, bubbles, { rect })</code> pose un calque fixe sur la
+    page, aux coordonnées de la case, et les bulles y sont placées en fractions de la case (<code>x, y, tx, ty, bx,
+    by</code>).</p>
+  <ul>
+    <li><b>Suivre la case</b> : ajouter <code>ctl.place(rect)</code> qui remet <code>left, top, width, height</code> du
+      calque (en % de la page) ; l'appeler depuis <code>layoutPageAt</code>. Les bulles gardent leur place relative dans
+      la case.</li>
+    <li><b>Ne pas faire grossir le texte</b> : la taille du texte est en <code>cqw</code> du calque, donc proportionnelle à
+      la largeur de la case ; une case qui s'élargit ferait grossir le texte. Pour une page animée, fixer la base à la
+      largeur de la case dans la page finie (une variable CSS en pixels, mise à jour au redimensionnement de la page)
+      au lieu de <code>1cqw</code>.</li>
+    <li><b>Case refermée</b> : cacher le calque de ses bulles à ces instants.</li>
+    <li>L'éditeur de bulles travaille sur la case de la page finie : rien à changer.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 11 -->
+<section id="ordre">
+  <div class="sec-head"><p class="eyebrow">11 · Plan</p><h2>Ordre de travail</h2></div>
+  <p>Chaque étape se termine par un commit et un push, comme d'habitude. Ne jamais toucher les cases à pastille verte.</p>
+  <ol class="steps">
+    <li><b>Les deux bugs du § 7</b><div><p>Vignette et <code>rev</code>, <code>_last</code> dans <code>restore()</code>.
+      Utiles même sans animation.</p></div></li>
+    <li><b>Le calcul, en trois copies</b><div><p><code>geometry.js</code>, <code>alive-player.js</code>,
+      <code>geometry.py</code> ; identifiants de traits ; garde « case refermée » ; <code>page.fill</code>. Contrôle des 40
+      valeurs de courbes et des polygones (§ 4).</p></div></li>
+    <li><b>Les deux modes</b><div><p>✏️ Edit (icônes seulement dans ce mode) et 🎞 Animate framing (vue à la tête de lecture,
+      poignées en mode clé, <code>keyCut</code>, <code>shiftCut</code>, <code>touchCut</code>, lecture à
+      <kbd>Espace</kbd>).</p></div></li>
+    <li><b>La timeline</b><div><p>Recopie de <code>timeline.js</code> et de ses styles, raccourcis dans
+      <code>keys()</code>, module Style de page, badges « animé » de l'inspecteur, page finie pour
+      <code>page.jpg</code>.</p></div></li>
+    <li><b>Serveur et assemblage</b><div><p><code>clean_anim</code>, données de la page jouable, cases refermées,
+      <code>page_key</code>, livres, <code>compose.py</code>.</p></div></li>
+    <li><b>Le lecteur</b><div><p>Horloge de page, <code>layoutPageAt</code>, calques du fond et des traits, affiches, bulles
+      qui suivent.</p></div></li>
+    <li><b>Vidéos en repère dans l'éditeur</b><div><p>Optionnel, avec la règle de temps des cases d'Alive-Comics.</p></div></li>
+    <li><b>Documentation</b><div><p><code>docs/ALIVE-COMICS-DOC.html</code>, <code>ALIVE-COMICS-CONNAISSANCES.html</code>,
+      <code>README.md</code>, et la règle d'or dans <code>CLAUDE.md</code>.</p></div></li>
+  </ol>
+</section>
+
+<!-- ============================================================ 12 -->
+<section id="recette">
+  <div class="sec-head"><p class="eyebrow">12 · Contrôle</p><h2>Recette</h2></div>
+  <p>Sur une copie de planche (<code>zz-…</code>), jamais sur les planches de David.</p>
+  <h3>Données et calcul</h3>
+  <ul class="checks">
+    <li>Une planche existante s'ouvre, reçoit des identifiants de traits, et reste identique à l'écran, dans l'aperçu et
+      dans le livre.</li>
+    <li>Les 8 courbes donnent les mêmes 40 valeurs en JS et en Python.</li>
+    <li>Pour trois instants d'une planche animée, éditeur, lecteur et <code>geometry.py</code> donnent les mêmes
+      polygones (au dixième d'unité de page).</li>
+    <li>Un trait collé au bord : la case disparaît sans erreur (éditeur, lecteur, assemblage), puis revient.</li>
+  </ul>
+  <h3>Éditeur et timeline</h3>
+  <ul class="checks">
+    <li>✏️ Edit montre les icônes, Animate framing les cache, hors des deux la planche est nette.</li>
+    <li>Glisser une attache à 2 s : deux clés (0 s et 2 s) ; la planche suit la tête de lecture ; <kbd>Espace</kbd> joue.</li>
+    <li>Hors du mode, glisser un trait animé décale toutes ses clés ; la planche montre la page finie.</li>
+    <li>Rectangle de sélection sur 4 lignes, glisser le groupe de 0,5 s : seules ces 4 clés bougent.</li>
+    <li>Clic droit : dupliquer juste après, copier, coller à 3 s, courbe « Ease out fort » enregistrée sur le serveur
+      (<code>"e": "out2"</code> dans <code>project.json</code>).</li>
+    <li>Suppr, Ctrl+A, Échap, Maj + clic sur des noms de ligne, ☰ Toutes les lignes, ◆ Clé partout, Tout effacer.</li>
+    <li>Style de page : une couleur et la gouttière à deux instants ; badges « 🎞 animé » dans l'inspecteur.</li>
+    <li>Nouveau découpage : l'animation part ; Ctrl+Z la rend.</li>
+  </ul>
+  <h3>Annuler et recharger</h3>
+  <ul class="checks">
+    <li>◆ Clé partout puis Tout effacer dans la même seconde : deux Ctrl+Z reviennent aux deux états.</li>
+    <li>Ctrl+Z, puis une nouvelle action, puis Ctrl+Z : on revient à l'état d'après le premier Ctrl+Z (pas avant).</li>
+    <li>Une action, 10 s d'attente : la timeline n'est pas recréée (même élément DOM), Ctrl+Z marche, la sélection
+      reste.</li>
+    <li>Ctrl+Z avec le focus sur un curseur ou le menu des courbes : annule.</li>
+  </ul>
+  <h3>Lecteur</h3>
+  <ul class="checks">
+    <li>Aperçu d'une planche animée : le découpage s'anime à l'ouverture, les vidéos suivent leurs cases, le fond et les
+      traits changent comme dans l'éditeur.</li>
+    <li>Survol, gestes, sons, visionneuse et bulles marchent pendant et après l'animation.</li>
+    <li>Livre : en tournant la page, l'animation repart ; une page sans animation est inchangée.</li>
+    <li>Réduire les animations (système) : la page s'affiche directement finie.</li>
+    <li>Chrome, Safari (Mac), Firefox ; une page publiée sur le site.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 13 -->
+<section id="code">
+  <div class="sec-head"><p class="eyebrow">13 · Sources</p><h2>Où lire le code d'Alive-Video</h2></div>
+  <div class="tbl"><table>
+    <tr><th>Fichier</th><th>Ce qu'il y a à prendre</th></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/geometry.js"><code>app/web/js/geometry.js</code></a></td>
+      <td>Garde dans <code>compute</code>, <code>splitLeaf</code> (identifiant du nouveau trait), bloc « animation du cadrage » : <code>EASES</code> … <code>ensureCutIds</code>, <code>PAGE_DEFAULTS.fill</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/timeline.js"><code>app/web/js/timeline.js</code></a></td>
+      <td>Toute la timeline.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/main.js"><code>app/web/js/main.js</code></a></td>
+      <td>Barre du haut (<code>span.modes</code>), <code>keys()</code>, <code>commit</code>, <code>restore</code>, <code>open</code> (<code>_tlKeep</code>), <code>finalGeom</code>, et le bloc « Animate framing » en fin de fichier (<code>viewLayout</code> … <code>animChanged</code>).</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/editor.js"><code>app/web/js/editor.js</code></a></td>
+      <td><code>render</code>, poignées des traits, <code>renderOverlay</code>, glisser un trait (branches animation), <code>liveVideo</code>, <code>syncVideos</code>, <code>sourceTime</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/forms.js"><code>app/web/js/forms.js</code></a></td>
+      <td><code>pageForm</code> : couleur « Cases », badges « 🎞 animé ».</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/js/exporter.js"><code>app/web/js/exporter.js</code></a></td>
+      <td><code>pageImages</code> : page finie, cases en <code>page.fill</code>, renvoi de <code>rev</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/player/alive-player.js"><code>player/alive-player.js</code></a></td>
+      <td>Copies du calcul (<code>ease</code> … <code>layoutAt</code>, <code>computeLayout</code>, <code>grow</code>), <code>updateGeometry</code>, <code>placeEl</code>. Le dessin WebGL n'est pas à reprendre.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/geometry.py"><code>app/geometry.py</code></a></td>
+      <td>Copies Python du calcul, <code>clean_anim</code>, <code>ensure_cut_ids</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/assemble.py"><code>app/assemble.py</code></a></td>
+      <td>Données <code>layout</code> / <code>anim</code> / <code>pagep</code>, cases refermées, <code>page_key</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/server.py"><code>app/server.py</code></a></td>
+      <td>Réponse de <code>thumb.jpg</code> avec <code>rev</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/app/web/app.css"><code>app/web/app.css</code></a></td>
+      <td>Classes <code>.modes</code>, <code>.tl*</code>, <code>small.animated</code>, <code>body.anim-on</code>.</td></tr>
+    <tr><td><a href="https://github.com/grosdada/Alive-Video/blob/main/docs/ALIVE-VIDEO-DOC.html"><code>docs/ALIVE-VIDEO-DOC.html</code></a></td>
+      <td>§ 7 bis « Animate framing » : la même fonction vue côté utilisateur.</td></tr>
+  </table></div>
+  <div class="note"><b>Ce qui n'est pas à reprendre</b>
+    <p>Tout ce qui est propre à Alive-Video : lecteur WebGL, onglet Filtres, export MP4 (<code>videoexport.py</code>, qui
+      recalcule les cases à chaque image de la vidéo), dossier des exports. Si Alive-Comics exporte un jour une vidéo, la
+      même chaîne Python (<code>layout_at</code>, <code>page_at</code>, <code>compute</code> par image) s'y branche.</p></div>
+</section>
+
+<footer>
+  <p>Rédigé à partir d'Alive-Video 0.1.2 (dépôt <code>grosdada/Alive-Video</code>, <code>main</code>) et d'Alive-Comics
+    <code>main</code> au 29 octobre 2026.</p>
+  <p>Questions sur la fonction : relire d'abord le code cité ; le comportement attendu fait foi dans Alive-Video.</p>
+</footer>
+</div>
+</body>
+</html>

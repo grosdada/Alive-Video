@@ -97,4 +97,5 @@ Mac (`~/Alive-Video/projects`).
 9. **Livres et publication** : comme Alive-Comics (livres de plusieurs planches, projets de rangement, publication par
    SSH une fois réglée dans ⚙ Réglages).
 
-Documentation complète : `docs/ALIVE-VIDEO-DOC.html`.
+Documentation complète : `docs/ALIVE-VIDEO-DOC.html`. Pour reprendre « Animate framing » dans Alive-Comics :
+`docs/ANIMATE-FRAMING-POUR-ALIVE-COMICS.html`.
